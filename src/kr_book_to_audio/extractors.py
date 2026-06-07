@@ -175,6 +175,18 @@ def extract_mobi(path: Path) -> str:
     return _strip_html(bytes(raw[:text_length]).decode(codec, 'replace'))
 
 
+def _pdf_sample_pages(page_count: int | None) -> list[int]:
+    if not page_count or page_count < 1:
+        return [1]
+    return sorted({1, max(1, (page_count + 1) // 2), page_count})
+
+
+def _decode_stdout(value: object) -> str:
+    if isinstance(value, bytes):
+        return value.decode('utf-8', 'replace')
+    return str(value or '')
+
+
 def diagnose(path: Path) -> dict:
     ext = path.suffix.lower()
     if ext in {'.txt', '.md', '.docx', '.epub', '.mobi', '.azw', '.prc'}:
@@ -186,14 +198,42 @@ def diagnose(path: Path) -> dict:
         raise UnsupportedFormat(f'Unsupported input format: {ext or "<none>"}')
     require_command('pdfinfo', 'install Poppler')
     require_command('pdffonts', 'install Poppler')
-    info = subprocess.run(['pdfinfo', str(path)], capture_output=True, text=True, check=False).stdout
-    fonts = subprocess.run(['pdffonts', str(path)], capture_output=True, text=True, check=False).stdout
+    require_command('pdftotext', 'install Poppler')
+    info_result = subprocess.run(['pdfinfo', str(path)], capture_output=True, text=True, check=False)
+    fonts_result = subprocess.run(['pdffonts', str(path)], capture_output=True, text=True, check=False)
+    info = _decode_stdout(info_result.stdout)
+    fonts = _decode_stdout(fonts_result.stdout)
     font_rows = [line for line in fonts.splitlines()[2:] if line.strip()]
-    pages = re.search(r'Pages:\s+(\d+)', info)
-    has_text = bool(font_rows)
-    return {'format': 'pdf', 'extractable': has_text, 'needs_ocr': not has_text,
-            'pages': int(pages.group(1)) if pages else None}
-
+    pages_match = re.search(r'Pages:\s+(\d+)', info)
+    page_count = int(pages_match.group(1)) if pages_match else None
+    sample_texts = []
+    sample_pages = _pdf_sample_pages(page_count)
+    for page in sample_pages:
+        result = subprocess.run(['pdftotext', '-f', str(page), '-l', str(page), '-layout', str(path), '-'], capture_output=True, check=False)
+        if result.returncode == 0:
+            sample_texts.append(_decode_stdout(result.stdout))
+    sample = '\n'.join(sample_texts)
+    nonspace = [char for char in sample if not char.isspace()]
+    readable = sum(1 for char in nonspace if char.isalnum() or '\u3400' <= char <= '\u9fff')
+    cjk = sum(1 for char in nonspace if '\u3400' <= char <= '\u9fff')
+    usable_sample = readable >= 20
+    extractable = bool(font_rows) and usable_sample
+    reason = None
+    if not font_rows:
+        reason = 'PDF has no detected font rows. It appears image-only and requires OCR first.'
+    elif not usable_sample:
+        reason = 'PDF exposes fonts but sampled pages did not yield usable prose. Re-OCR or choose a better source.'
+    return {
+        'format': 'pdf',
+        'extractable': extractable,
+        'needs_ocr': not extractable,
+        'pages': page_count,
+        'sample_pages': sample_pages,
+        'sample_nonspace_chars': len(nonspace),
+        'sample_readable_chars': readable,
+        'sample_cjk_chars': cjk,
+        'reason': reason,
+    }
 
 def extract(path: Path) -> str:
     ext = path.suffix.lower()

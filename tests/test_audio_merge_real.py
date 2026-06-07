@@ -3,21 +3,23 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from kr_book_to_audio.audio import merge_parts, validate_mp3
-from kr_book_to_audio.manifest import new_manifest, save_manifest
-from kr_book_to_audio.models import JobPaths
+from kr_book_to_audio.audio import audio_signature, merge_parts, validate_mp3
+from kr_book_to_audio.manifest import load_manifest, save_manifest
+from helpers import make_prepared_job
 
 @unittest.skipUnless(shutil.which('ffmpeg') and shutil.which('ffprobe'), 'FFmpeg fixture requires ffmpeg and ffprobe')
 class RealAudioMergeTests(unittest.TestCase):
     def test_real_ffmpeg_merge_uses_inferable_partial_extension(self):
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td); job = JobPaths.from_root(root / 'job'); job.ensure()
-            source = root / 'source.txt'; source.write_text('中文。', encoding='utf-8')
-            manifest = new_manifest(source=source, source_sha256='x', title='book', options={'chunk_chars': 100})
-            manifest['parts'] = [{'index': 1, 'file': 'part-0001.txt', 'sha256': 'a'}]
-            save_manifest(job, manifest)
+            job = make_prepared_job(Path(td))
             part = job.parts_audio / 'part-0001.mp3'
             subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=0.2', '-q:a', '9', str(part)], check=True)
+            manifest = load_manifest(job)
+            signature = audio_signature(voice='voice', rate='+0%')
+            manifest['audio']['signature'] = signature
+            manifest['audio']['completed']['1'] = {'text_sha256': manifest['parts'][0]['sha256'], 'signature': signature, **validate_mp3(part)}
+            manifest['gates']['preview'] = {'approved_audio_signature': signature, 'approved_part_sha256': manifest['parts'][0]['sha256'], 'approved_utc': 'test'}
+            save_manifest(job, manifest)
             output = merge_parts(job)
             self.assertTrue(output.exists())
             self.assertGreater(validate_mp3(output)['duration_seconds'], 0)
