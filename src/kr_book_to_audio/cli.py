@@ -1,0 +1,58 @@
+from __future__ import annotations
+from pathlib import Path
+import argparse
+import json
+from .audio import audition_sample, merge_parts, synthesize_parts
+from .config import DEFAULT_CHUNK_CJK, DEFAULT_RATE, DEFAULT_VOICE, default_export_root, local_work_root
+from .extractors import diagnose
+from .models import JobPaths
+from .pipeline import job_status, prepare_job, rebuild_parts, strip_junk_and_rebuild
+
+
+def _job(value: str) -> JobPaths:
+    return JobPaths.from_root(Path(value))
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description='Robust Chinese-optimized local book-to-audiobook pipeline.')
+    sub = parser.add_subparsers(dest='command', required=True)
+    p = sub.add_parser('diagnose'); p.add_argument('source')
+    p = sub.add_parser('prepare')
+    p.add_argument('source'); p.add_argument('--work-root', default=str(local_work_root())); p.add_argument('--export-root', default=str(default_export_root()))
+    p.add_argument('--title'); p.add_argument('--strip-dates', action='store_true'); p.add_argument('--t2s', action='store_true'); p.add_argument('--dictionary'); p.add_argument('--chars', type=int, default=DEFAULT_CHUNK_CJK)
+    p = sub.add_parser('rebuild'); p.add_argument('job'); p.add_argument('--dictionary'); p.add_argument('--chars', type=int)
+    p = sub.add_parser('strip-junk'); p.add_argument('job'); p.add_argument('--dictionary'); p.add_argument('--min-repeats', type=int, default=3)
+    p = sub.add_parser('tts'); p.add_argument('job'); p.add_argument('--voice', default=DEFAULT_VOICE); p.add_argument('--rate', default=DEFAULT_RATE); p.add_argument('--start', type=int, default=1); p.add_argument('--end', type=int); p.add_argument('--retries', type=int, default=3)
+    p = sub.add_parser('audition'); p.add_argument('--voice', default=DEFAULT_VOICE); p.add_argument('--rate', default=DEFAULT_RATE); p.add_argument('--output-dir')
+    p = sub.add_parser('preview'); p.add_argument('job'); p.add_argument('--voice', default=DEFAULT_VOICE); p.add_argument('--rate', default=DEFAULT_RATE); p.add_argument('--retries', type=int, default=3)
+    p = sub.add_parser('merge'); p.add_argument('job'); p.add_argument('--name')
+    p = sub.add_parser('status'); p.add_argument('job')
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    if args.command == 'diagnose':
+        print(json.dumps(diagnose(Path(args.source)), ensure_ascii=False, indent=2)); return 0
+    if args.command == 'audition':
+        print(audition_sample(voice=args.voice, rate=args.rate, output_dir=Path(args.output_dir) if args.output_dir else None)); return 0
+    if args.command == 'prepare':
+        job = prepare_job(Path(args.source), work_root=Path(args.work_root), export_root=Path(args.export_root), title=args.title, strip_dates=args.strip_dates, convert_config='t2s' if args.t2s else None, dictionary_path=Path(args.dictionary) if args.dictionary else None, chunk_chars=args.chars)
+        print(json.dumps(job_status(job), ensure_ascii=False, indent=2)); return 0
+    job = _job(args.job)
+    if args.command == 'rebuild':
+        print(json.dumps(rebuild_parts(job, dictionary_path=Path(args.dictionary) if args.dictionary else None, chunk_chars=args.chars), ensure_ascii=False, indent=2)); return 0
+    if args.command == 'strip-junk':
+        print(json.dumps(strip_junk_and_rebuild(job, min_repeats=args.min_repeats, dictionary_path=Path(args.dictionary) if args.dictionary else None), ensure_ascii=False, indent=2)); return 0
+    if args.command == 'tts':
+        print(json.dumps(synthesize_parts(job, voice=args.voice, rate=args.rate, start=args.start, end=args.end, retries=args.retries), ensure_ascii=False, indent=2)); return 0
+    if args.command == 'preview':
+        print(json.dumps(synthesize_parts(job, voice=args.voice, rate=args.rate, start=1, end=1, retries=args.retries), ensure_ascii=False, indent=2)); return 0
+    if args.command == 'merge':
+        print(merge_parts(job, output_name=args.name)); return 0
+    if args.command == 'status':
+        print(json.dumps(job_status(job), ensure_ascii=False, indent=2)); return 0
+    raise AssertionError(args.command)
+
+if __name__ == '__main__':
+    raise SystemExit(main())

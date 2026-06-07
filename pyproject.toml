@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kr-book-to-audio"
+version = "1.0.0"
+description = "A robust, Chinese-optimized local book-to-audiobook pipeline."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["edge-tts>=7.0"]
+
+[project.optional-dependencies]
+traditional = ["opencc>=1.1"]
+dev = []
+
+[project.scripts]
+kr-book-to-audio = "kr_book_to_audio.cli:main"
+kr-book-to-audio-gui = "kr_book_to_audio.gui:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
