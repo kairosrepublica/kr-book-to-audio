@@ -3,11 +3,13 @@ from collections import Counter
 from pathlib import Path
 import json
 import re
-from .utils import atomic_write_json, atomic_write_text, sha256_text
 
 CJK = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 SENT_END = set('。！？…”》）)】"!?」』.')
-DATE = re.compile(r'[（(]\s*\d{4}\s*[-./年]\s*\d{1,2}\s*[-./月]\s*\d{1,2}\s*[日]?\s*[）)]')
+_DATE_TOKEN = r"\d{4}\s*(?:[-./]\s*\d{1,2}\s*[-./]\s*\d{1,2}|年\s*\d{1,2}\s*月\s*\d{1,2}\s*日?)"
+_TIME_TOKEN = r"[ T]\s*[0-2]?\d\s*:\s*[0-5]\d(?:\s*:\s*[0-5]\d)?"
+BRACKETED_METADATA_DATETIME = re.compile(rf"[（(\[【]\s*{_DATE_TOKEN}(?:{_TIME_TOKEN})?\s*[）)\]】]")
+BARE_METADATA_DATETIME = re.compile(rf"(?<!\d){_DATE_TOKEN}{_TIME_TOKEN}(?!\d)")
 CJK_PUNCT = '，。、！？；：“”‘’（）《》【】…—·「」『』'
 ADJ = '[\\u3400-\\u4dbf\\u4e00-\\u9fff\\uf900-\\ufaff' + re.escape(CJK_PUNCT) + ']'
 SP_AFTER = re.compile('(?<=' + ADJ + r')[ \t]+')
@@ -33,7 +35,12 @@ def normalize_cjk(text: str) -> str:
     return SP_BEFORE.sub('', SP_AFTER.sub('', text))
 
 
-def clean_text(raw: str, *, strip_dates: bool = False, cjk_ratio: float = 0.55) -> tuple[str, dict]:
+def strip_metadata_datetime_tags(text: str) -> str:
+    """Remove source-style timestamp tags without deleting ordinary prose dates or times."""
+    return BARE_METADATA_DATETIME.sub('', BRACKETED_METADATA_DATETIME.sub('', text))
+
+
+def clean_text(raw: str, *, strip_datetime_tags: bool = False, cjk_ratio: float = 0.55) -> tuple[str, dict]:
     """Conservatively reflow extracted prose while removing deterministic page noise."""
     pages = raw.split('\f')
     leaders = Counter()
@@ -57,8 +64,8 @@ def clean_text(raw: str, *, strip_dates: bool = False, cjk_ratio: float = 0.55) 
                     continue
             if re.fullmatch(r'\d{1,5}', value):
                 continue
-            if strip_dates:
-                value = DATE.sub('', value)
+            if strip_datetime_tags:
+                value = strip_metadata_datetime_tags(value)
             lines.append(value)
 
     paragraphs: list[str] = []
@@ -101,6 +108,7 @@ def clean_text(raw: str, *, strip_dates: bool = False, cjk_ratio: float = 0.55) 
         'residual_exact_duplicates': sum(c - 1 for c in Counter(kept).values() if c > 1),
         'running_headers_removed': sorted(running),
         'residual_intra_cjk_spaces': len(re.findall(r'[\u3400-\u9fff] +[\u3400-\u9fff]', body)),
+        'metadata_datetime_cleanup': bool(strip_datetime_tags),
     }
     return body, stats
 

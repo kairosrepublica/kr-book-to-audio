@@ -13,10 +13,22 @@ def _utc_now() -> str:
 
 
 def ensure_manifest_defaults(payload: dict) -> dict:
-    """Upgrade additive manifest fields without breaking v1.0.0 jobs."""
+    """Upgrade additive fields and retire legacy conversion options without breaking old jobs."""
     payload.setdefault('paths', {})
-    payload.setdefault('text', {})
+    text = payload.setdefault('text', {})
     payload.setdefault('parts', [])
+    options = payload.setdefault('options', {})
+    ignored: list[str] = []
+    if 'strip_datetime_tags' not in options and 'strip_dates' in options:
+        options['strip_datetime_tags'] = bool(options.get('strip_dates'))
+    for key in ('strip_dates', 'convert_config', 't2s'):
+        if key in options:
+            options.pop(key, None)
+            ignored.append(key)
+    if ignored:
+        migration = payload.setdefault('migration', {})
+        existing = set(migration.get('ignored_legacy_options', []))
+        migration['ignored_legacy_options'] = sorted(existing | set(ignored))
     audio = payload.setdefault('audio', {})
     audio.setdefault('signature', None)
     audio.setdefault('completed', {})

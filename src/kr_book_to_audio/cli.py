@@ -19,7 +19,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser('diagnose'); p.add_argument('source')
     p = sub.add_parser('prepare')
     p.add_argument('source'); p.add_argument('--work-root', default=str(local_work_root())); p.add_argument('--export-root', default=str(default_export_root()))
-    p.add_argument('--title'); p.add_argument('--strip-dates', action='store_true'); p.add_argument('--t2s', action='store_true'); p.add_argument('--dictionary'); p.add_argument('--chars', type=int, default=DEFAULT_CHUNK_CJK)
+    p.add_argument('--title'); p.add_argument('--strip-date-time-tags', action='store_true'); p.add_argument('--dictionary'); p.add_argument('--chars', type=int, default=DEFAULT_CHUNK_CJK)
     p = sub.add_parser('rebuild'); p.add_argument('job'); p.add_argument('--dictionary'); p.add_argument('--chars', type=int)
     p = sub.add_parser('approve-proofread'); p.add_argument('job'); p.add_argument('--dictionary'); p.add_argument('--chars', type=int)
     p = sub.add_parser('strip-junk'); p.add_argument('job'); p.add_argument('--dictionary'); p.add_argument('--min-repeats', type=int, default=3)
@@ -40,7 +40,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == 'audition':
         print(audition_sample(voice=args.voice, rate=args.rate, output_dir=Path(args.output_dir) if args.output_dir else None)); return 0
     if args.command == 'prepare':
-        job = prepare_job(Path(args.source), work_root=Path(args.work_root), export_root=Path(args.export_root), title=args.title, strip_dates=args.strip_dates, convert_config='t2s' if args.t2s else None, dictionary_path=Path(args.dictionary) if args.dictionary else None, chunk_chars=args.chars)
+        job = prepare_job(Path(args.source), work_root=Path(args.work_root), export_root=Path(args.export_root), title=args.title, strip_datetime_tags=args.strip_date_time_tags, dictionary_path=Path(args.dictionary) if args.dictionary else None, chunk_chars=args.chars)
         print(json.dumps(job_status(job), ensure_ascii=False, indent=2)); return 0
     job = _job(args.job)
     if args.command == 'rebuild':

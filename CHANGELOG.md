@@ -1,5 +1,26 @@
 # Changelog
 
+## Istanbul Release v1.1.1 - 2026-06-08
+
+Windows PDF and GUI cleanup hotfix.
+
+### Fixed
+
+- Read Poppler output as bytes before decoding so Windows console-code-page assumptions cannot crash PDF preparation.
+- Fall back safely to the source filename when PDF metadata output is empty or unusable.
+- Treat legacy configuration and manifest fields as migratable data rather than active conversion controls.
+
+### Changed
+
+- Add compact `ⓘ` hover help instead of long inline explanations.
+- Add explicit default-folder actions for book picker, local working root and export root.
+- Move metadata-like date/time cleanup into the **Optional cleanup** area.
+- Remove the unrelated Traditional-to-Simplified conversion control, command-line option and optional dependency.
+
+### Added
+
+- Regression tests for mixed Windows Poppler output, `stdout=None`, Chinese PDF titles, configuration migration, manifest migration, compact GUI surface and date/time cleanup boundaries.
+
 ## Istanbul Release v1.1.0 - 2026-06-08
 
 Production Run Safety release.
@@ -18,7 +39,7 @@ Production Run Safety release.
 
 ### Changed
 
-- Merge now verifies manifest completion records, text hashes, speech signatures and MP3 hashes before joining files.
+- Merge verifies manifest completion records, text hashes, speech signatures and MP3 hashes before joining files.
 - Audio partial files use the inferable `.partial.mp3` naming convention.
 - CLI adds `approve-proofread`, `approve-preview` and `retry-failed` commands.
 
@@ -31,7 +52,6 @@ Founding public release.
 - Shared Python core for command-line and Tkinter desktop entry points.
 - Automatic general-prose and Chinese-optimized cleaning modes.
 - Chinese extraction cleanup with whitespace normalization, running-header removal and conservative reflow.
-- Optional OpenCC Traditional-to-Simplified conversion.
 - Proofread file and user-editable pronunciation replacement dictionary.
 - Manifest-driven resumability and stale-output invalidation.
 - Atomic speech output with `ffprobe` validation.

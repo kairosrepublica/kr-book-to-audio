@@ -8,7 +8,7 @@ Use this workflow for continuous prose. Do not use it for books whose meaning de
 
 Prefer born-digital EPUB, MOBI or DOCX sources. For scanned books, preserve the scan as visual ground truth and produce an OCR text layer first. Prefer predictable page noise over stochastic reflow corruption.
 
-PDF diagnosis now checks representative extracted-text samples as well as font rows. When sampled prose is unusable, re-OCR the PDF or choose a better source.
+PDF diagnosis checks representative extracted-text samples as well as font rows. When sampled prose is unusable, re-OCR the PDF or choose a better source.
 
 ## Environment
 
@@ -16,7 +16,6 @@ Install Python dependencies:
 
 ```bash
 python -m pip install -e .
-python -m pip install opencc  # only for Traditional-to-Simplified conversion
 ```
 
 Install Poppler for PDF input and FFmpeg for audio validation and merge.
@@ -29,23 +28,28 @@ kr-book-to-audio-gui
 
 Then:
 
-1. Prepare text.
-2. Open and review `proofread.txt`.
-3. Click **Approve proofread & rebuild** after proofread or dictionary changes.
-4. Audition the selected voice.
-5. Generate and listen to Part 1.
-6. Click **Approve Part 1**.
-7. Generate all parts.
-8. Use **Retry failed** when a network interruption leaves recorded failures.
-9. Merge only after generation completes without gaps.
+1. Select a source book.
+2. Optionally choose **Remove metadata-like date/time tags**.
+3. Prepare text.
+4. Open and review the cleaned text.
+5. Optionally run **Remove repeated headers and junk** when residual junk remains.
+6. Click **Approve reviewed text & rebuild** after review or dictionary changes.
+7. Audition the selected voice.
+8. Generate and listen to Part 1.
+9. Click **Approve Part 1**.
+10. Generate all parts.
+11. Use **Retry failed** after a network interruption.
+12. Merge only after generation completes without gaps.
 
-The interface blocks conflicting background actions. Changing proofread text, dictionary content, voice or speaking rate invalidates the affected approval.
+Use the `ⓘ` hover markers for field and cleanup explanations. Use **Set as default** to persist the current book folder, local working root or export root.
+
+Changing reviewed text, dictionary content, voice or speaking rate invalidates the affected approval.
 
 ## Command-line workflow
 
 ```bash
 kr-book-to-audio diagnose book.epub
-kr-book-to-audio prepare book.epub --dictionary pronunciation.json
+kr-book-to-audio prepare book.epub --strip-date-time-tags --dictionary pronunciation.json
 kr-book-to-audio approve-proofread PATH_TO_JOB --dictionary pronunciation.json
 kr-book-to-audio audition --voice zh-CN-YunyangNeural --rate +0%
 kr-book-to-audio preview PATH_TO_JOB --voice zh-CN-YunyangNeural --rate +0%
@@ -56,6 +60,12 @@ kr-book-to-audio merge PATH_TO_JOB
 ```
 
 When a pronunciation dictionary is used, pass it again to `approve-proofread` after editing it. The manifest stores the approved dictionary path for subsequent freshness checks.
+
+## Optional cleanup boundary
+
+`--strip-date-time-tags` removes bracketed source-style dates and full timestamps. It deliberately preserves ordinary dates and times inside prose.
+
+Repeated-header cleanup is explicit because repeated short text is not always junk. Legitimate chapter headings, quotations and refrains must not be deleted automatically.
 
 ## Recovery
 

@@ -8,7 +8,6 @@ Highlights:
 - automatic general-prose and Chinese-optimized cleaning modes;
 - Chinese PDF whitespace normalization, running-header removal and conservative reflow;
 - proofread and Part-1 listening gates before full synthesis;
-- optional OpenCC Traditional-to-Simplified conversion;
 - transparent pronunciation replacement dictionary with preview counts;
 - manifest-driven resumability and stale-output invalidation;
 - atomic MP3 generation, `ffprobe` validation and strict complete-sequence merge;

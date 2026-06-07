@@ -2,6 +2,7 @@ from __future__ import annotations
 from pathlib import Path
 from urllib.parse import unquote
 import html
+import locale
 import os
 import re
 import struct
@@ -182,9 +183,32 @@ def _pdf_sample_pages(page_count: int | None) -> list[int]:
 
 
 def _decode_stdout(value: object) -> str:
-    if isinstance(value, bytes):
-        return value.decode('utf-8', 'replace')
-    return str(value or '')
+    """Decode external-tool output without trusting the Windows console code page.
+
+    Poppler commonly emits UTF-8 bytes even when Python would otherwise choose a
+    legacy Windows text codec for ``text=True``. Reading bytes first avoids reader
+    thread crashes and lets us fall back conservatively.
+    """
+    if value is None:
+        return ''
+    if isinstance(value, str):
+        return value
+    if not isinstance(value, (bytes, bytearray)):
+        return str(value)
+    raw = bytes(value)
+    preferred = locale.getpreferredencoding(False) or 'utf-8'
+    candidates = ['utf-8-sig', preferred, 'gb18030', 'cp1252', 'latin-1']
+    seen: set[str] = set()
+    for encoding in candidates:
+        normalized = encoding.lower()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        try:
+            return raw.decode(encoding)
+        except (LookupError, UnicodeDecodeError):
+            continue
+    return raw.decode('utf-8', 'replace')
 
 
 def diagnose(path: Path) -> dict:
@@ -199,8 +223,8 @@ def diagnose(path: Path) -> dict:
     require_command('pdfinfo', 'install Poppler')
     require_command('pdffonts', 'install Poppler')
     require_command('pdftotext', 'install Poppler')
-    info_result = subprocess.run(['pdfinfo', str(path)], capture_output=True, text=True, check=False)
-    fonts_result = subprocess.run(['pdffonts', str(path)], capture_output=True, text=True, check=False)
+    info_result = subprocess.run(['pdfinfo', str(path)], capture_output=True, check=False)
+    fonts_result = subprocess.run(['pdffonts', str(path)], capture_output=True, check=False)
     info = _decode_stdout(info_result.stdout)
     fonts = _decode_stdout(fonts_result.stdout)
     font_rows = [line for line in fonts.splitlines()[2:] if line.strip()]
@@ -250,7 +274,7 @@ def extract(path: Path) -> str:
     if ext == '.pdf':
         require_command('pdftotext', 'install Poppler')
         result = subprocess.run(['pdftotext', '-layout', str(path), '-'], capture_output=True, check=True)
-        return result.stdout.decode('utf-8', 'replace')
+        return _decode_stdout(result.stdout)
     raise UnsupportedFormat(f'Unsupported input format: {ext or "<none>"}')
 
 
@@ -261,8 +285,8 @@ def book_title(path: Path) -> str:
     elif path.suffix.lower() == '.pdf':
         try:
             require_command('pdfinfo')
-            output = subprocess.run(['pdfinfo', str(path)], capture_output=True, text=True, check=False).stdout
-            match = re.search(r'^Title:\s*(.+)$', output, flags=re.MULTILINE)
+            output = _decode_stdout(subprocess.run(['pdfinfo', str(path)], capture_output=True, check=False).stdout)
+            match = re.search(r'^Title:\s*(.+)$', output or '', flags=re.MULTILINE)
             if match:
                 title = match.group(1).strip()
         except RuntimeError:

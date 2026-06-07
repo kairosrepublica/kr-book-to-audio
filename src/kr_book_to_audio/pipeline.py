@@ -1,7 +1,6 @@
 from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
-import json
 import shutil
 from .config import DEFAULT_CHUNK_CJK, default_export_root, local_work_root
 from .extractors import book_title, diagnose, extract
@@ -28,22 +27,13 @@ def create_job(source: Path, *, work_root: Path | None = None, export_root: Path
     return job
 
 
-def _convert_opencc(text: str, config: str) -> str:
-    try:
-        from opencc import OpenCC
-    except ImportError as exc:
-        raise RuntimeError('OpenCC is required for Traditional-to-Simplified conversion: pip install opencc') from exc
-    return OpenCC(config).convert(text)
-
-
 def prepare_job(
     source: Path,
     *,
     work_root: Path | None = None,
     export_root: Path | None = None,
     title: str | None = None,
-    strip_dates: bool = False,
-    convert_config: str | None = None,
+    strip_datetime_tags: bool = False,
     dictionary_path: Path | None = None,
     chunk_chars: int = DEFAULT_CHUNK_CJK,
 ) -> JobPaths:
@@ -52,13 +42,11 @@ def prepare_job(
     if not diagnosis.get('extractable'):
         reason = diagnosis.get('reason') or 'Input is not extractable. OCR is required first.'
         raise RuntimeError(reason)
-    options = {'strip_dates': strip_dates, 'convert_config': convert_config, 'chunk_chars': chunk_chars}
+    options = {'strip_datetime_tags': strip_datetime_tags, 'chunk_chars': chunk_chars}
     job = create_job(source, work_root=work_root, export_root=export_root, title=title, options=options)
     raw = extract(source)
     atomic_write_text(job.extracted, raw)
-    cleaned, stats = clean_text(raw, strip_dates=strip_dates)
-    if convert_config:
-        cleaned = _convert_opencc(cleaned, convert_config)
+    cleaned, stats = clean_text(raw, strip_datetime_tags=strip_datetime_tags)
     atomic_write_text(job.cleaned, cleaned)
     atomic_write_text(job.proofread, cleaned)
     manifest = load_manifest(job)

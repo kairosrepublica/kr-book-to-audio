@@ -11,7 +11,7 @@ from .audio import approve_preview, audition_sample, merge_parts, retry_failed_p
 from .config import DEFAULT_RATE, DEFAULT_VOICE, default_export_root, load_config, local_work_root, save_config
 from .manifest import load_manifest
 from .models import JobPaths
-from .pipeline import approve_proofread_and_rebuild, job_status, prepare_job, rebuild_parts, strip_junk_and_rebuild
+from .pipeline import approve_proofread_and_rebuild, job_status, prepare_job, strip_junk_and_rebuild
 
 
 def manifest_completed(job: JobPaths) -> set[str]:
@@ -41,11 +41,65 @@ class BusyGuard:
             return self._label
 
 
+class Tooltip:
+    """Compact hover help so the main form remains uncluttered."""
+    def __init__(self, widget: tk.Widget, text: str):
+        self.widget = widget
+        self.text = text
+        self.window: tk.Toplevel | None = None
+        self.after_id: str | None = None
+        widget.bind('<Enter>', self._schedule, add='+')
+        widget.bind('<Leave>', self._hide, add='+')
+        widget.bind('<ButtonPress>', self._hide, add='+')
+
+    def _schedule(self, _event=None) -> None:
+        self._cancel()
+        self.after_id = self.widget.after(450, self._show)
+
+    def _cancel(self) -> None:
+        if self.after_id:
+            self.widget.after_cancel(self.after_id)
+            self.after_id = None
+
+    def _show(self) -> None:
+        if self.window or not self.text:
+            return
+        x = self.widget.winfo_rootx() + 18
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        self.window = tk.Toplevel(self.widget)
+        self.window.wm_overrideredirect(True)
+        self.window.wm_geometry(f'+{x}+{y}')
+        label = tk.Label(
+            self.window,
+            text=self.text,
+            justify='left',
+            relief='solid',
+            borderwidth=1,
+            padx=7,
+            pady=5,
+            wraplength=430,
+        )
+        label.pack()
+
+    def _hide(self, _event=None) -> None:
+        self._cancel()
+        if self.window:
+            self.window.destroy()
+            self.window = None
+
+
+def add_help(parent: tk.Widget, text: str, **grid_options) -> ttk.Label:
+    label = ttk.Label(parent, text='ⓘ', cursor='question_arrow')
+    label.grid(**grid_options)
+    Tooltip(label, text)
+    return label
+
+
 class App:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title('KR Book To Audio')
-        self.root.geometry('1180x820')
+        self.root.geometry('1230x850')
         self.events: queue.Queue[tuple] = queue.Queue()
         self.job: JobPaths | None = None
         self.busy = BusyGuard()
@@ -53,13 +107,13 @@ class App:
         self.part_states: dict[int, str] = {}
         cfg = load_config()
         self.source = tk.StringVar()
+        self.source_folder = str(cfg.get('source_folder', Path.home()))
         self.work_root = tk.StringVar(value=cfg.get('work_root', str(local_work_root())))
         self.export_root = tk.StringVar(value=cfg.get('export_root', str(default_export_root())))
         self.dictionary = tk.StringVar(value=cfg.get('dictionary', ''))
         self.voice = tk.StringVar(value=cfg.get('voice', DEFAULT_VOICE))
         self.rate = tk.StringVar(value=cfg.get('rate', DEFAULT_RATE))
-        self.t2s = tk.BooleanVar(value=cfg.get('t2s', False))
-        self.strip_dates = tk.BooleanVar(value=cfg.get('strip_dates', False))
+        self.strip_datetime_tags = tk.BooleanVar(value=cfg.get('strip_datetime_tags', False))
         self._build()
         self.voice.trace_add('write', self._voice_controls_changed)
         self.rate.trace_add('write', self._voice_controls_changed)
@@ -69,31 +123,54 @@ class App:
         frame = ttk.Frame(self.root, padding=12)
         frame.pack(fill='both', expand=True)
         rows = [
-            ('Book', self.source, self._browse_source),
-            ('Local working root', self.work_root, self._browse_work),
-            ('Export root', self.export_root, self._browse_export),
-            ('Pronunciation dictionary (optional JSON)', self.dictionary, self._browse_dict),
+            ('Book', self.source, self._browse_source, self._set_source_folder_default,
+             'Select one source book. Set folder as default stores the containing folder so the next file picker opens there.'),
+            ('Local working root', self.work_root, self._browse_work, self._set_work_default,
+             'Stores temporary processing files, task state and audio parts. Use a local non-cloud folder to avoid file-locking conflicts.'),
+            ('Export root', self.export_root, self._browse_export, self._set_export_default,
+             'Stores finished audiobook files and export-ready MP3 parts. A OneDrive folder is acceptable here.'),
+            ('Pronunciation dictionary', self.dictionary, self._browse_dict, None,
+             'Optional JSON replacement dictionary for names, polyphonic Chinese characters and recurring terminology.'),
         ]
-        for row, (label, var, command) in enumerate(rows):
+        for row, (label, var, browse, set_default, tip) in enumerate(rows):
             ttk.Label(frame, text=label).grid(row=row, column=0, sticky='w', pady=3)
-            ttk.Entry(frame, textvariable=var, width=95).grid(row=row, column=1, sticky='ew', pady=3)
-            ttk.Button(frame, text='Browse', command=command).grid(row=row, column=2, padx=6)
+            ttk.Entry(frame, textvariable=var, width=90).grid(row=row, column=1, sticky='ew', pady=3)
+            ttk.Button(frame, text='Browse', command=browse).grid(row=row, column=2, padx=(6, 3))
+            if set_default:
+                ttk.Button(frame, text='Set as default', command=set_default).grid(row=row, column=3, padx=3)
+            add_help(frame, tip, row=row, column=4, padx=(4, 0), sticky='w')
         frame.columnconfigure(1, weight=1)
+
         opts = ttk.Frame(frame)
-        opts.grid(row=4, column=0, columnspan=3, sticky='ew', pady=(8, 4))
+        opts.grid(row=4, column=0, columnspan=5, sticky='ew', pady=(8, 4))
         ttk.Label(opts, text='Voice').pack(side='left')
         ttk.Entry(opts, textvariable=self.voice, width=28).pack(side='left', padx=5)
         ttk.Label(opts, text='Rate').pack(side='left')
         ttk.Entry(opts, textvariable=self.rate, width=8).pack(side='left', padx=5)
-        ttk.Checkbutton(opts, text='Traditional to Simplified', variable=self.t2s).pack(side='left', padx=10)
-        ttk.Checkbutton(opts, text='Strip date tags', variable=self.strip_dates).pack(side='left', padx=10)
+
+        cleanup = ttk.Labelframe(frame, text='Optional cleanup')
+        cleanup.grid(row=5, column=0, columnspan=5, sticky='ew', pady=(4, 5))
+        ttk.Checkbutton(cleanup, text='Remove metadata-like date/time tags', variable=self.strip_datetime_tags).grid(row=0, column=0, sticky='w', padx=(6, 3), pady=4)
+        add_help(
+            cleanup,
+            'Removes source-style tags such as (2019-07-30), [2024/06/18 09:30] and 2026-06-08 01:45:22. Ordinary dates and times inside prose are preserved.',
+            row=0, column=1, sticky='w', padx=(0, 14),
+        )
+        strip_button = ttk.Button(cleanup, text='Remove repeated headers and junk', command=self.strip_junk)
+        strip_button.grid(row=0, column=2, sticky='w', padx=(4, 3), pady=4)
+        self.action_buttons.append(strip_button)
+        add_help(
+            cleanup,
+            'Use after Prepare text only when the reviewed text still contains repeated headers, footers or promotional lines. A backup is created automatically.',
+            row=0, column=3, sticky='w', padx=(0, 6),
+        )
+
         actions = ttk.Frame(frame)
-        actions.grid(row=5, column=0, columnspan=3, sticky='ew', pady=8)
+        actions.grid(row=6, column=0, columnspan=5, sticky='ew', pady=8)
         controls = [
             ('1. Prepare text', self.prepare),
-            ('2. Open proofread', self.open_proofread),
-            ('3. Approve proofread & rebuild', self.approve_proofread),
-            ('Optional: Strip repeated junk', self.strip_junk),
+            ('2. Open cleaned text', self.open_proofread),
+            ('3. Approve reviewed text & rebuild', self.approve_proofread),
             ('4. Audition voice', self.audition),
             ('5. Preview Part 1', self.preview),
             ('6. Approve Part 1', self.approve_part_one),
@@ -108,12 +185,13 @@ class App:
             self.action_buttons.append(button)
         for column in range(4):
             actions.columnconfigure(column, weight=1)
-        self.status = ttk.Label(frame, text='Ready. Work files default to a local non-cloud-synced directory.')
-        self.status.grid(row=6, column=0, columnspan=3, sticky='w')
+
+        self.status = ttk.Label(frame, text='Ready.')
+        self.status.grid(row=7, column=0, columnspan=5, sticky='w')
         self.progress = ttk.Progressbar(frame, maximum=100)
-        self.progress.grid(row=7, column=0, columnspan=3, sticky='ew', pady=(5, 5))
+        self.progress.grid(row=8, column=0, columnspan=5, sticky='ew', pady=(5, 5))
         body = ttk.Panedwindow(frame, orient='horizontal')
-        body.grid(row=8, column=0, columnspan=3, sticky='nsew')
+        body.grid(row=9, column=0, columnspan=5, sticky='nsew')
         log_frame = ttk.Labelframe(body, text='Run log')
         parts_frame = ttk.Labelframe(body, text='Part status')
         body.add(log_frame, weight=3)
@@ -126,20 +204,21 @@ class App:
         self.parts.column('part', width=90, anchor='center')
         self.parts.column('state', width=180, anchor='w')
         self.parts.pack(fill='both', expand=True)
-        frame.rowconfigure(8, weight=1)
+        frame.rowconfigure(9, weight=1)
 
     def _browse_source(self) -> None:
-        value = filedialog.askopenfilename(filetypes=[('Books', '*.pdf *.epub *.mobi *.azw *.prc *.docx *.txt *.md'), ('All files', '*.*')])
+        initial = self.source_folder if Path(self.source_folder).exists() else str(Path.home())
+        value = filedialog.askopenfilename(initialdir=initial, filetypes=[('Books', '*.pdf *.epub *.mobi *.azw *.prc *.docx *.txt *.md'), ('All files', '*.*')])
         if value:
             self.source.set(value)
 
     def _browse_work(self) -> None:
-        value = filedialog.askdirectory()
+        value = filedialog.askdirectory(initialdir=self.work_root.get() or str(local_work_root()))
         if value:
             self.work_root.set(value)
 
     def _browse_export(self) -> None:
-        value = filedialog.askdirectory()
+        value = filedialog.askdirectory(initialdir=self.export_root.get() or str(default_export_root()))
         if value:
             self.export_root.set(value)
 
@@ -147,6 +226,27 @@ class App:
         value = filedialog.askopenfilename(filetypes=[('JSON', '*.json'), ('All files', '*.*')])
         if value:
             self.dictionary.set(value)
+
+    def _persist_default(self, key: str, value: str, message: str) -> None:
+        cfg = load_config()
+        cfg[key] = value
+        save_config(cfg)
+        self.status.config(text=message)
+
+    def _set_source_folder_default(self) -> None:
+        value = self.source.get().strip()
+        if not value:
+            messagebox.showerror('No book', 'Select a book first.')
+            return
+        folder = str(Path(value).expanduser().resolve().parent)
+        self.source_folder = folder
+        self._persist_default('source_folder', folder, 'Default book folder saved.')
+
+    def _set_work_default(self) -> None:
+        self._persist_default('work_root', self.work_root.get().strip(), 'Default local working root saved.')
+
+    def _set_export_default(self) -> None:
+        self._persist_default('export_root', self.export_root.get().strip(), 'Default export root saved.')
 
     def _job_required(self) -> JobPaths | None:
         if not self.job:
@@ -156,16 +256,15 @@ class App:
     def _dict(self) -> Path | None:
         return Path(self.dictionary.get()) if self.dictionary.get().strip() else None
 
-    def _save_cfg(self) -> None:
-        save_config({
-            'work_root': self.work_root.get(),
-            'export_root': self.export_root.get(),
+    def _save_runtime_cfg(self) -> None:
+        cfg = load_config()
+        cfg.update({
             'dictionary': self.dictionary.get(),
             'voice': self.voice.get(),
             'rate': self.rate.get(),
-            't2s': self.t2s.get(),
-            'strip_dates': self.strip_dates.get(),
+            'strip_datetime_tags': self.strip_datetime_tags.get(),
         })
+        save_config(cfg)
 
     def _voice_controls_changed(self, *_: object) -> None:
         if self.job:
@@ -258,16 +357,19 @@ class App:
         self.status.config(text=f'Part {index:04d}: {state}')
 
     def prepare(self) -> None:
-        src = Path(self.source.get())
-        self._save_cfg()
+        source_value = self.source.get().strip()
+        if not source_value:
+            messagebox.showerror('No book', 'Select a book first.')
+            return
+        src = Path(source_value)
+        self._save_runtime_cfg()
         work_root = Path(self.work_root.get())
         export_root = Path(self.export_root.get())
-        strip_dates = self.strip_dates.get()
-        convert_config = 't2s' if self.t2s.get() else None
+        strip_datetime_tags = self.strip_datetime_tags.get()
         dictionary = self._dict()
         self._reset_part_view()
         def work():
-            self.job = prepare_job(src, work_root=work_root, export_root=export_root, strip_dates=strip_dates, convert_config=convert_config, dictionary_path=dictionary)
+            self.job = prepare_job(src, work_root=work_root, export_root=export_root, strip_datetime_tags=strip_datetime_tags, dictionary_path=dictionary)
             return job_status(self.job)
         self._run('Prepare text', work)
 
@@ -281,13 +383,13 @@ class App:
         job = self._job_required()
         if job:
             dictionary = self._dict()
-            self._run('Approve proofread & rebuild', lambda: approve_proofread_and_rebuild(job, dictionary_path=dictionary))
+            self._run('Approve reviewed text & rebuild', lambda: approve_proofread_and_rebuild(job, dictionary_path=dictionary))
 
     def strip_junk(self) -> None:
         job = self._job_required()
         if job:
             dictionary = self._dict()
-            self._run('Strip repeated junk', lambda: strip_junk_and_rebuild(job, dictionary_path=dictionary))
+            self._run('Remove repeated headers and junk', lambda: strip_junk_and_rebuild(job, dictionary_path=dictionary))
 
     def audition(self) -> None:
         voice, rate = self.voice.get(), self.rate.get()
@@ -337,7 +439,7 @@ class App:
             self._run('Merge MP3', lambda: str(merge_parts(job)))
 
     def resume(self) -> None:
-        value = filedialog.askdirectory(title='Select an existing job folder')
+        value = filedialog.askdirectory(title='Select an existing job folder', initialdir=self.work_root.get() or str(local_work_root()))
         if not value:
             return
         job = JobPaths.from_root(Path(value))

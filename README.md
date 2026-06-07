@@ -10,33 +10,42 @@ Chinese audiobook generation fails in ways that generic text-to-speech wrappers 
 
 The pipeline treats cleanup, human proofreading, listening approval and audio integrity as separate gates. A long synthesis run cannot start merely because a button was clicked.
 
-## Istanbul Release v1.1.0
+## Istanbul Release v1.1.1
 
-The Production Run Safety release adds:
+The Windows PDF and GUI cleanup hotfix adds:
+
+- bytes-first decoding for Poppler commands on Windows;
+- safe PDF-title fallback when metadata output is empty or undecodable;
+- compact GUI path controls with hover tooltips;
+- explicit **Set as default** actions for book folder, local working root and export root;
+- optional metadata-like date/time cleanup grouped under **Optional cleanup**;
+- removal of the unrelated Traditional-to-Simplified conversion feature and dependency;
+- safe migration of older local configuration and job manifests.
+
+The v1.1.0 Production Run Safety capabilities remain:
 
 - enforced proofreading approval bound to the current `proofread.txt` SHA-256 hash;
 - enforced Part-1 listening approval bound to the current text, voice and speaking rate;
-- automatic blocking when the pronunciation dictionary changes after rebuilding;
-- automatic invalidation of stale MP3 files when text or speech controls change;
+- pronunciation-dictionary freshness checks;
+- automatic invalidation of stale MP3 files;
 - one-job-at-a-time locking across desktop and command-line processes;
-- persisted failed-part records and targeted retry;
+- failed-part persistence and targeted retry;
 - per-part desktop status and overall progress;
-- strict merge validation against manifest hashes, not file existence alone;
-- durable JSON-line logs for synthesis retries and merge outcomes;
-- PDF diagnosis that samples real extracted text rather than trusting font rows alone.
+- strict merge validation against manifest hashes;
+- durable JSON-line logs;
+- PDF diagnosis that samples real extracted text instead of trusting font rows alone.
 
-The founding v1.0.0 capabilities remain:
+The founding capabilities remain:
 
 - one shared Python core used by both command-line and Tkinter desktop interfaces;
 - Chinese-character whitespace normalization while preserving ASCII spaces such as `S&P 500`;
 - conservative page-header removal and sentence-aware reflow;
-- optional OpenCC Traditional-to-Simplified conversion;
 - user-editable pronunciation replacement dictionary;
 - automatic `chinese-optimized` and `general-prose` cleaning modes;
 - safe splitting of pathological long paragraphs;
 - numeric part ordering beyond 99 parts;
 - atomic `.partial.mp3` generation with `ffprobe` validation;
-- local non-cloud working storage by default and a separate configurable export folder;
+- local working storage by default and a separate configurable export folder;
 - explicit rejection of unverified AZW3 or Kindle Format 8 parsing.
 
 ## Installation
@@ -46,19 +55,12 @@ Requirements:
 - Python 3.11 or later;
 - FFmpeg and `ffprobe` for audio validation and merge;
 - Poppler commands (`pdfinfo`, `pdffonts`, `pdftotext`) for PDF input;
-- `edge-tts` for the default online speech backend;
-- `opencc` only when Traditional-to-Simplified conversion is needed.
+- `edge-tts` for the default online speech backend.
 
 Install the Python package in editable mode:
 
 ```bash
 python -m pip install -e .
-```
-
-Optional conversion support:
-
-```bash
-python -m pip install opencc
 ```
 
 ## Desktop workflow
@@ -72,8 +74,8 @@ kr-book-to-audio-gui
 Recommended workflow:
 
 1. Select a book and prepare text.
-2. Open `proofread.txt` and correct visible extraction errors.
-3. Click **Approve proofread & rebuild**. This binds the current text and pronunciation dictionary to the job manifest.
+2. Open the cleaned text and correct visible extraction errors.
+3. Click **Approve reviewed text & rebuild**. This binds the current text and pronunciation dictionary to the job manifest.
 4. Audition the selected voice.
 5. Generate and listen to Part 1.
 6. Click **Approve Part 1**.
@@ -81,15 +83,20 @@ Recommended workflow:
 8. Use **Retry failed** when a network interruption leaves recorded failures.
 9. Merge only after every manifest-declared MP3 passes validation.
 
-Changing `proofread.txt`, the pronunciation dictionary, the selected voice or the speaking rate invalidates the relevant approval. The interface refuses to continue until the affected gate is repeated.
+Changing the reviewed text, pronunciation dictionary, selected voice or speaking rate invalidates the relevant approval. The interface refuses to continue until the affected gate is repeated.
 
-Work files default to a local non-cloud directory. Finished audio exports go to a separate configurable folder.
+The compact `ⓘ` markers explain path fields and optional cleanup actions without expanding the main form.
+
+## Optional cleanup
+
+- **Remove metadata-like date/time tags** removes source-style labels such as `(2019-07-30)`, `[2024/06/18 09:30]` and `2026-06-08 01:45:22` while preserving ordinary dates and times used inside prose.
+- **Remove repeated headers and junk** is an explicit post-prepare action for residual headers, footers or promotional lines. A backup is created automatically.
 
 ## Command-line workflow
 
 ```bash
 kr-book-to-audio diagnose book.epub
-kr-book-to-audio prepare book.epub --t2s --dictionary pronunciation.json
+kr-book-to-audio prepare book.epub --strip-date-time-tags --dictionary pronunciation.json
 kr-book-to-audio approve-proofread PATH_TO_JOB --dictionary pronunciation.json
 kr-book-to-audio audition --voice zh-CN-YunyangNeural --rate +0%
 kr-book-to-audio preview PATH_TO_JOB --voice zh-CN-YunyangNeural --rate +0%

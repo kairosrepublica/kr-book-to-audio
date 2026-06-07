@@ -9,9 +9,10 @@ The command-line interface and desktop interface are thin adapters around one sh
 ```text
 source book
   diagnose
+  bytes-first external-tool decoding
   extract
   clean
-  optional OpenCC conversion
+  optional metadata-like date/time cleanup
   proofread.txt
   explicit proofreading approval
   pronunciation dictionary freshness check
@@ -30,7 +31,7 @@ source book
 
 ## Storage boundary
 
-The default working directory is local and non-cloud-synced. It contains resumable intermediate artifacts. The export directory is separate and user-configurable. Finished files may be copied into a synchronized library without exposing partial synthesis artifacts to sync locking.
+The working directory contains resumable intermediate artifacts. The export directory is separate and user-configurable. The desktop interface includes explicit **Set as default** actions for the book folder, local working root and export root. Finished files may be copied into a synchronized library without exposing partial synthesis artifacts to sync locking.
 
 ## Job manifest
 
@@ -47,6 +48,12 @@ The default working directory is local and non-cloud-synced. It contains resumab
 - merged-output metadata.
 
 Text, dictionary or chunk changes invalidate stale MP3 files. Voice or speaking-control changes invalidate prior audio state. Full synthesis and merge remain blocked until the required approvals match the current state.
+
+Legacy script-conversion fields are ignored during manifest migration. They are not active pipeline features.
+
+## External-command boundary
+
+Poppler output is captured as bytes and decoded through a shared conservative decoder. This avoids Windows reader-thread failures caused by implicit console-code-page decoding. Missing or unusable PDF metadata safely falls back to the source filename.
 
 ## Concurrency boundary
 
