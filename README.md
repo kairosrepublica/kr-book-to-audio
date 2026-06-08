@@ -1,52 +1,53 @@
 # KR Book To Audio
 
-KR Book To Audio is a local, resumable book-to-audiobook pipeline with additional safeguards for Chinese-language books.
+KR Book To Audio is a local, resumable book-to-audiobook pipeline with multilingual text processing, Chinese-language safeguards, an OCR advisor and provider registries for future engine expansion.
 
 It converts text-layer PDF, EPUB, MOBI or PalmDOC-compatible AZW or PRC, DOCX, TXT and Markdown sources into independently recoverable MP3 parts and an optional merged MP3 audiobook.
 
-## Why this project exists
+## Istanbul Release v1.2.0
 
-Chinese audiobook generation fails in ways that generic text-to-speech wrappers often miss. Optical character recognition and PDF extraction may inject invisible layout damage into Chinese prose: glyph-gap spaces, recurring page headers, page numbers, mid-sentence page breaks and repeated junk. These defects sound much worse than they look because a speech engine treats them as segmentation cues.
+This release adds an OCR Advisor Foundation and a clearer multilingual desktop workflow:
 
-The pipeline treats cleanup, human proofreading, listening approval and audio integrity as separate gates. A long synthesis run cannot start merely because a button was clicked.
+- automatic OCR applicability and necessity analysis;
+- local OCR capability discovery for PaddleOCR, Tesseract, OCRmyPDF, language packs and advisory GPU availability;
+- automatic local OCR recommendation instead of forcing the operator to understand engine details;
+- sample-page OCR preview before full-book OCR;
+- provider registries shared by OCR and text-to-speech paths;
+- reserved but disabled API adapter slots for OpenAI Vision, Claude Vision, Azure Speech, OpenAI TTS and custom HTTP providers;
+- no cloud upload path enabled in this release;
+- readonly TTS-engine selector with `Microsoft Edge Online TTS · edge-tts` as the only enabled provider;
+- cached, refreshable voice dropdown with language-profile filtering and manual **Show all voices** override;
+- processing-profile selector: auto, Chinese, English, mixed Chinese-English and general prose;
+- automatic cleanup analysis with high-confidence action buttons and review-required preservation;
+- estimated Part-1 and current-part progress, plus exact overall completed-part progress.
 
-## Istanbul Release v1.1.1
+The v1.1.1 Windows PDF hotfix remains active: Poppler output is decoded bytes-first, and missing PDF metadata falls back safely to the source filename.
 
-The Windows PDF and GUI cleanup hotfix adds:
+## Provider model
 
-- bytes-first decoding for Poppler commands on Windows;
-- safe PDF-title fallback when metadata output is empty or undecodable;
-- compact GUI path controls with hover tooltips;
-- explicit **Set as default** actions for book folder, local working root and export root;
-- optional metadata-like date/time cleanup grouped under **Optional cleanup**;
-- removal of the unrelated Traditional-to-Simplified conversion feature and dependency;
-- safe migration of older local configuration and job manifests.
+Three concepts are separated:
 
-The v1.1.0 Production Run Safety capabilities remain:
+```text
+OCR provider
+Text processing profile
+TTS provider and voice
+```
 
-- enforced proofreading approval bound to the current `proofread.txt` SHA-256 hash;
-- enforced Part-1 listening approval bound to the current text, voice and speaking rate;
-- pronunciation-dictionary freshness checks;
-- automatic invalidation of stale MP3 files;
-- one-job-at-a-time locking across desktop and command-line processes;
-- failed-part persistence and targeted retry;
-- per-part desktop status and overall progress;
-- strict merge validation against manifest hashes;
-- durable JSON-line logs;
-- PDF diagnosis that samples real extracted text instead of trusting font rows alone.
+The current enabled TTS provider is:
 
-The founding capabilities remain:
+```text
+edge-tts
+```
 
-- one shared Python core used by both command-line and Tkinter desktop interfaces;
-- Chinese-character whitespace normalization while preserving ASCII spaces such as `S&P 500`;
-- conservative page-header removal and sentence-aware reflow;
-- user-editable pronunciation replacement dictionary;
-- automatic `chinese-optimized` and `general-prose` cleaning modes;
-- safe splitting of pathological long paragraphs;
-- numeric part ordering beyond 99 parts;
-- atomic `.partial.mp3` generation with `ffprobe` validation;
-- local working storage by default and a separate configurable export folder;
-- explicit rejection of unverified AZW3 or Kindle Format 8 parsing.
+The OCR advisor can discover and recommend local providers:
+
+```text
+paddleocr-ppocrv5
+tesseract-local
+ocrmypdf-tesseract
+```
+
+Reserved API adapter slots are disabled by default. They exist so future integrations can be added without rewriting the pipeline. Credentials must come from environment variables or a future Owner-local secret store. They are never stored in job manifests, logs or public GitHub files.
 
 ## Installation
 
@@ -54,14 +55,24 @@ Requirements:
 
 - Python 3.11 or later;
 - FFmpeg and `ffprobe` for audio validation and merge;
-- Poppler commands (`pdfinfo`, `pdffonts`, `pdftotext`) for PDF input;
-- `edge-tts` for the default online speech backend.
+- Poppler commands (`pdfinfo`, `pdffonts`, `pdftotext`, `pdftoppm`) for PDF input and OCR rendering;
+- `edge-tts` for the current online speech provider.
 
-Install the Python package in editable mode:
+Install:
 
 ```bash
 python -m pip install -e .
 ```
+
+Optional local OCR engines are discovered automatically when installed:
+
+```text
+PaddleOCR
+Tesseract
+OCRmyPDF
+```
+
+The application does not auto-install large OCR dependencies.
 
 ## Desktop workflow
 
@@ -73,51 +84,66 @@ kr-book-to-audio-gui
 
 Recommended workflow:
 
-1. Select a book and prepare text.
-2. Open the cleaned text and correct visible extraction errors.
-3. Click **Approve reviewed text & rebuild**. This binds the current text and pronunciation dictionary to the job manifest.
-4. Audition the selected voice.
-5. Generate and listen to Part 1.
-6. Click **Approve Part 1**.
-7. Generate the remaining MP3 parts.
-8. Use **Retry failed** when a network interruption leaves recorded failures.
-9. Merge only after every manifest-declared MP3 passes validation.
+1. Select a source book.
+2. Run **Analyze source** in the OCR section.
+3. When OCR is required, preview sample OCR and run the recommended local OCR engine.
+4. Select a processing profile or keep **Auto detect · recommended**.
+5. Prepare text.
+6. Review automatic cleanup recommendations. Apply only the recommended cleanup actions you accept.
+7. Open and review the cleaned text.
+8. Click **Approve reviewed text & rebuild**.
+9. Refresh the voice list when needed, audition the selected voice and generate Part 1.
+10. Approve Part 1 after listening.
+11. Generate all parts, retry recorded failures when needed and merge only after validation completes.
 
-Changing the reviewed text, pronunciation dictionary, selected voice or speaking rate invalidates the relevant approval. The interface refuses to continue until the affected gate is repeated.
+Changing the reviewed text, pronunciation dictionary, selected voice, speaking controls or TTS provider invalidates the relevant approval.
 
-The compact `ⓘ` markers explain path fields and optional cleanup actions without expanding the main form.
+## OCR boundary
 
-## Optional cleanup
+The application prefers native text and avoids OCR when a reliable text layer already exists.
 
-- **Remove metadata-like date/time tags** removes source-style labels such as `(2019-07-30)`, `[2024/06/18 09:30]` and `2026-06-08 01:45:22` while preserving ordinary dates and times used inside prose.
-- **Remove repeated headers and junk** is an explicit post-prepare action for residual headers, footers or promotional lines. A backup is created automatically.
+For scanned PDF sources, the advisor:
 
-## Command-line workflow
+```text
+analyzes representative pages
+detects language characteristics
+discovers local capabilities
+recommends a local OCR provider
+supports sample preview before full OCR
+```
+
+Cloud OCR adapters are reserved but disabled. No page is uploaded to a remote API in v1.2.0.
+
+## Optional cleanup boundary
+
+Cleanup analysis reports:
+
+```text
+not-needed
+recommended
+review-required
+```
+
+Only high-confidence candidates can be removed by action buttons. Ambiguous repeated text remains preserved for human review.
+
+## Command-line examples
 
 ```bash
-kr-book-to-audio diagnose book.epub
-kr-book-to-audio prepare book.epub --strip-date-time-tags --dictionary pronunciation.json
+kr-book-to-audio providers
+kr-book-to-audio ocr-analyze scan.pdf
+kr-book-to-audio ocr-preview scan.pdf
+kr-book-to-audio ocr-run scan.pdf --output-dir OCR_OUTPUT
+kr-book-to-audio prepare book.epub --profile auto --dictionary pronunciation.json
+kr-book-to-audio cleanup PATH_TO_JOB metadata-date-time-tags
+kr-book-to-audio cleanup PATH_TO_JOB repeated-headers-and-junk
 kr-book-to-audio approve-proofread PATH_TO_JOB --dictionary pronunciation.json
-kr-book-to-audio audition --voice zh-CN-YunyangNeural --rate +0%
-kr-book-to-audio preview PATH_TO_JOB --voice zh-CN-YunyangNeural --rate +0%
-kr-book-to-audio approve-preview PATH_TO_JOB --voice zh-CN-YunyangNeural --rate +0%
-kr-book-to-audio tts PATH_TO_JOB --voice zh-CN-YunyangNeural --rate +0%
-kr-book-to-audio retry-failed PATH_TO_JOB --voice zh-CN-YunyangNeural --rate +0%
+kr-book-to-audio audition --engine edge-tts --voice zh-CN-YunyangNeural --rate +0%
+kr-book-to-audio preview PATH_TO_JOB --engine edge-tts --voice zh-CN-YunyangNeural --rate +0%
+kr-book-to-audio approve-preview PATH_TO_JOB --engine edge-tts --voice zh-CN-YunyangNeural --rate +0%
+kr-book-to-audio tts PATH_TO_JOB --engine edge-tts --voice zh-CN-YunyangNeural --rate +0%
+kr-book-to-audio retry-failed PATH_TO_JOB --engine edge-tts --voice zh-CN-YunyangNeural --rate +0%
 kr-book-to-audio merge PATH_TO_JOB
 ```
-
-A pronunciation dictionary is a JSON file:
-
-```json
-{
-  "replacements": [
-    {"find": "重庆", "replace": "重 庆", "enabled": true},
-    {"find": "单于", "replace": "蝉 于", "enabled": true}
-  ]
-}
-```
-
-The replacement text should be chosen by listening tests. Every replacement count is written into `pronunciation_preview.json` before synthesis.
 
 ## Input boundary
 
@@ -131,13 +157,8 @@ Supported directly:
 
 Not supported directly:
 
-- image-only scanned PDF before OCR;
 - AZW3 or Kindle Format 8;
 - tables, formulas or figure-dependent material where visual meaning cannot survive audio conversion.
-
-## Roadmap
-
-Planned extensions include integrated OCR, paid Azure Speech support with richer pronunciation controls, semantic chapter extraction, chapter-aware M4B export, mixed Chinese-English routing and optional offline backends.
 
 ## License
 

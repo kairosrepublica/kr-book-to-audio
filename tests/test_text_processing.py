@@ -16,7 +16,7 @@ class TextProcessingTests(unittest.TestCase):
     def test_general_prose_mode_preserves_english(self):
         cleaned, stats = clean_text('This is an English sentence.\n\nThis is another paragraph.')
         self.assertIn('English sentence', cleaned)
-        self.assertEqual(stats['language_mode'], 'general-prose')
+        self.assertEqual(stats['language_mode'], 'english')
     def test_oversized_english_paragraph_is_split(self):
         parts = chunk_text('a' * 250 + '.', max_cjk=100)
         self.assertEqual([len(p) for p in parts], [100, 100, 51])

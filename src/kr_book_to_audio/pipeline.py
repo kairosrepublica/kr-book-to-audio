@@ -7,7 +7,7 @@ from .extractors import book_title, diagnose, extract
 from .manifest import load_manifest, new_manifest, save_manifest
 from .models import JobPaths
 from .state import approve_proofread_state, dictionary_digest, load_required_dictionary, reset_audio_state, reset_preview_gate
-from .text_processing import apply_dictionary, chunk_text, clean_text, strip_repeated_junk, text_units
+from .text_processing import analyze_cleanup, apply_cleanup, apply_dictionary, chunk_text, clean_text, text_units
 from .utils import append_job_log, atomic_write_json, atomic_write_text, clear_files, job_operation_lock, sanitize_filename, sha256_file, sha256_text
 
 
@@ -33,7 +33,7 @@ def prepare_job(
     work_root: Path | None = None,
     export_root: Path | None = None,
     title: str | None = None,
-    strip_datetime_tags: bool = False,
+    processing_profile: str = 'auto',
     dictionary_path: Path | None = None,
     chunk_chars: int = DEFAULT_CHUNK_CJK,
 ) -> JobPaths:
@@ -42,16 +42,18 @@ def prepare_job(
     if not diagnosis.get('extractable'):
         reason = diagnosis.get('reason') or 'Input is not extractable. OCR is required first.'
         raise RuntimeError(reason)
-    options = {'strip_datetime_tags': strip_datetime_tags, 'chunk_chars': chunk_chars}
+    options = {'processing_profile': processing_profile, 'chunk_chars': chunk_chars}
     job = create_job(source, work_root=work_root, export_root=export_root, title=title, options=options)
     raw = extract(source)
     atomic_write_text(job.extracted, raw)
-    cleaned, stats = clean_text(raw, strip_datetime_tags=strip_datetime_tags)
+    cleaned, stats = clean_text(raw, processing_profile=processing_profile)
     atomic_write_text(job.cleaned, cleaned)
     atomic_write_text(job.proofread, cleaned)
     manifest = load_manifest(job)
     manifest['diagnosis'] = diagnosis
     manifest['text']['clean_stats'] = stats
+    manifest['text']['processing_profile'] = stats.get('language_mode')
+    manifest['cleanup']['analysis'] = analyze_cleanup(cleaned)
     save_manifest(job, manifest)
     rebuild_parts(job, dictionary_path=dictionary_path, chunk_chars=chunk_chars)
     append_job_log(job, 'prepared', cjk_chars=stats['cjk_chars'], language_mode=stats['language_mode'])
@@ -117,20 +119,30 @@ def approve_proofread_and_rebuild(job: JobPaths, *, dictionary_path: Path | None
         return {'approval': approval, **report}
 
 
-def strip_junk_and_rebuild(job: JobPaths, *, min_repeats: int = 3, dictionary_path: Path | None = None) -> dict:
-    with job_operation_lock(job, 'strip-junk-and-rebuild'):
+def apply_cleanup_and_rebuild(job: JobPaths, *, kind: str, dictionary_path: Path | None = None) -> dict:
+    with job_operation_lock(job, f'cleanup-{kind}'):
         manifest = load_manifest(job)
         baseline = job.proofread.read_text(encoding='utf-8')
-        cleaned, report = strip_repeated_junk(baseline, min_repeats=min_repeats)
-        backup = job.work / 'proofread_prejunk.txt'
-        if not backup.exists():
-            shutil.copyfile(job.proofread, backup)
+        cleaned, report = apply_cleanup(baseline, kind)
+        stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup = job.work / f'proofread_precleanup_{stamp}.txt'
+        shutil.copyfile(job.proofread, backup)
         atomic_write_text(job.proofread, cleaned)
         _rebuild_parts_unlocked(job, dictionary_path=dictionary_path, chunk_chars=int(manifest['options']['chunk_chars']))
-        atomic_write_json(job.work / 'junk_report.json', report)
-        append_job_log(job, 'junk-stripped', removed=len(report['removed']))
-        return report
+        manifest = load_manifest(job)
+        manifest['cleanup']['analysis'] = analyze_cleanup(cleaned)
+        manifest['cleanup'].setdefault('history', []).append({'kind': kind, 'backup': str(backup), 'report': report})
+        save_manifest(job, manifest)
+        append_job_log(job, 'cleanup-applied', kind=kind, backup=str(backup), report=report)
+        return {'kind': kind, 'backup': str(backup), 'report': report, 'analysis': manifest['cleanup']['analysis']}
 
+
+def strip_junk_and_rebuild(job: JobPaths, *, min_repeats: int = 3, dictionary_path: Path | None = None) -> dict:
+    return apply_cleanup_and_rebuild(job, kind='repeated-headers-and-junk', dictionary_path=dictionary_path)
+
+
+def strip_datetime_and_rebuild(job: JobPaths, *, dictionary_path: Path | None = None) -> dict:
+    return apply_cleanup_and_rebuild(job, kind='metadata-date-time-tags', dictionary_path=dictionary_path)
 
 def job_status(job: JobPaths) -> dict:
     manifest = load_manifest(job)
@@ -156,4 +168,6 @@ def job_status(job: JobPaths) -> dict:
         'proofread_path': str(job.proofread),
         'export_dir': str(job.export),
         'estimated_hours': round(text_units(job.tts_text.read_text(encoding='utf-8')) / 4.6 / 3600, 2) if job.tts_text.exists() else 0.0,
+        'cleanup_analysis': manifest.get('cleanup', {}).get('analysis', {}),
+        'processing_profile': manifest.get('text', {}).get('processing_profile', manifest.get('options', {}).get('processing_profile', 'auto')),
     }

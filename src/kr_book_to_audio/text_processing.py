@@ -40,7 +40,73 @@ def strip_metadata_datetime_tags(text: str) -> str:
     return BARE_METADATA_DATETIME.sub('', BRACKETED_METADATA_DATETIME.sub('', text))
 
 
-def clean_text(raw: str, *, strip_datetime_tags: bool = False, cjk_ratio: float = 0.55) -> tuple[str, dict]:
+def detect_processing_profile(text: str) -> str:
+    compact = re.sub(r'\s', '', text)
+    if not compact:
+        return 'general-prose'
+    cjk = n_cjk(text)
+    latin = sum(1 for char in compact if char.isascii() and char.isalpha())
+    if cjk >= 20 and latin >= 20 and min(cjk, latin) / max(cjk, latin) >= 0.12:
+        return 'mixed'
+    if cjk >= max(10, latin * 2):
+        return 'chinese'
+    if latin >= max(10, cjk * 2):
+        return 'english'
+    return 'general-prose'
+
+
+def analyze_cleanup(text: str, *, min_repeats: int = 3, max_len: int = 50) -> dict:
+    paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
+    counts = Counter(paragraphs)
+    repeated = []
+    ambiguous = []
+    for paragraph in paragraphs:
+        if AD_RE.search(paragraph):
+            repeated.append({'reason': 'advertisement-or-url', 'text': paragraph, 'confidence': 'high'})
+        elif len(paragraph) <= max_len and counts[paragraph] >= min_repeats:
+            target = {'reason': 'repeated-short-paragraph', 'text': paragraph, 'count': counts[paragraph]}
+            if counts[paragraph] >= max(5, min_repeats + 2) or len(paragraph) <= 24:
+                repeated.append({**target, 'confidence': 'high'})
+            else:
+                ambiguous.append({**target, 'confidence': 'review'})
+    datetime_matches = []
+    for match in BRACKETED_METADATA_DATETIME.finditer(text):
+        datetime_matches.append({'text': match.group(0), 'confidence': 'high', 'reason': 'bracketed-metadata-date-time'})
+    for match in BARE_METADATA_DATETIME.finditer(text):
+        datetime_matches.append({'text': match.group(0), 'confidence': 'high', 'reason': 'bare-metadata-date-time'})
+    def status(high, review=None):
+        if review:
+            return 'review-required'
+        return 'recommended' if high else 'not-needed'
+    return {
+        'repeated_headers_and_junk': {'status': status(repeated, ambiguous), 'high_confidence': repeated, 'review': ambiguous, 'count': len(repeated)},
+        'metadata_datetime_tags': {'status': status(datetime_matches), 'high_confidence': datetime_matches, 'review': [], 'count': len(datetime_matches)},
+    }
+
+
+def apply_cleanup(text: str, kind: str, *, min_repeats: int = 3) -> tuple[str, dict]:
+    if kind == 'repeated-headers-and-junk':
+        analysis = analyze_cleanup(text, min_repeats=min_repeats)
+        approved = {(item['reason'], item['text']) for item in analysis['repeated_headers_and_junk']['high_confidence']}
+        paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
+        kept: list[str] = []
+        removed: list[dict] = []
+        counts = Counter(paragraphs)
+        for paragraph in paragraphs:
+            reason = 'advertisement-or-url' if AD_RE.search(paragraph) else 'repeated-short-paragraph'
+            if (reason, paragraph) in approved:
+                removed.append({'reason': reason, 'text': paragraph})
+            else:
+                kept.append(paragraph)
+        return '\n\n'.join(kept), {'removed': removed, 'kept_paragraphs': len(kept), 'review_preserved': analysis['repeated_headers_and_junk']['review']}
+    if kind == 'metadata-date-time-tags':
+        before = list(BRACKETED_METADATA_DATETIME.finditer(text)) + list(BARE_METADATA_DATETIME.finditer(text))
+        cleaned = strip_metadata_datetime_tags(text)
+        return cleaned, {'removed_count': len(before), 'kind': kind}
+    raise ValueError(f'Unknown cleanup kind: {kind}')
+
+
+def clean_text(raw: str, *, strip_datetime_tags: bool = False, cjk_ratio: float = 0.55, processing_profile: str = 'auto') -> tuple[str, dict]:
     """Conservatively reflow extracted prose while removing deterministic page noise."""
     pages = raw.split('\f')
     leaders = Counter()
@@ -87,7 +153,9 @@ def clean_text(raw: str, *, strip_datetime_tags: bool = False, cjk_ratio: float 
         paragraphs.append(buffer)
 
     raw_compact = re.sub(r'\s', '', raw)
-    chinese_mode = n_cjk(raw) / max(len(raw_compact), 1) >= 0.20
+    detected_profile = detect_processing_profile(raw)
+    selected_profile = detected_profile if processing_profile == 'auto' else processing_profile
+    chinese_mode = selected_profile in {'chinese', 'mixed'}
     kept: list[str] = []
     for paragraph in paragraphs:
         paragraph = normalize_cjk(paragraph)
@@ -102,7 +170,9 @@ def clean_text(raw: str, *, strip_datetime_tags: bool = False, cjk_ratio: float 
 
     body = '\n\n'.join(kept)
     stats = {
-        'language_mode': 'chinese-optimized' if chinese_mode else 'general-prose',
+        'language_mode': selected_profile,
+        'detected_profile': detected_profile,
+        'requested_profile': processing_profile,
         'cjk_chars': n_cjk(body),
         'paragraphs': len(kept),
         'residual_exact_duplicates': sum(c - 1 for c in Counter(kept).values() if c > 1),

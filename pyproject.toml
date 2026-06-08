@@ -4,14 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kr-book-to-audio"
-version = "1.1.1"
-description = "A robust, Chinese-optimized local book-to-audiobook pipeline."
+version = "1.2.0"
+description = "A robust multilingual book-to-audiobook pipeline with OCR advisor and provider registries."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["edge-tts>=7.0"]
 
 [project.optional-dependencies]
 dev = []
+ocr-paddle = ["paddleocr>=3.0"]
 
 [project.scripts]
 kr-book-to-audio = "kr_book_to_audio.cli:main"

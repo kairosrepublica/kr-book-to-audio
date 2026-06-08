@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import time
 from .manifest import load_manifest, save_manifest
+from .providers import get_tts_provider
 from .models import JobPaths
 from .state import approve_preview_state, assert_preview_approved, assert_proofread_approved, reset_audio_state
 from .utils import append_job_log, job_operation_lock, require_command, sha256_file, sha256_text
@@ -14,8 +15,8 @@ from .utils import append_job_log, job_operation_lock, require_command, sha256_f
 ProgressCallback = Callable[[dict], None]
 
 
-def audio_signature(*, voice: str, rate: str, pitch: str = '+0Hz', volume: str = '+0%') -> str:
-    return sha256_text('|'.join([voice, rate, pitch, volume]))
+def audio_signature(*, voice: str, rate: str, pitch: str = '+0Hz', volume: str = '+0%', provider_id: str = 'edge-tts') -> str:
+    return sha256_text('|'.join([provider_id, voice, rate, pitch, volume]))
 
 
 def expected_audio_paths(job: JobPaths, manifest: dict) -> list[Path]:
@@ -41,7 +42,7 @@ def validate_mp3(path: Path, *, ffprobe: str = 'ffprobe') -> dict:
     return {'bytes': path.stat().st_size, 'duration_seconds': duration, 'sha256': sha256_file(path)}
 
 
-def audition_sample(*, voice: str, rate: str = '+0%', pitch: str = '+0Hz', volume: str = '+0%', output_dir: Path | None = None, validator: Callable[[Path], dict] = validate_mp3) -> Path:
+def audition_sample(*, voice: str, rate: str = '+0%', pitch: str = '+0Hz', volume: str = '+0%', provider_id: str = 'edge-tts', output_dir: Path | None = None, validator: Callable[[Path], dict] = validate_mp3) -> Path:
     output_dir = Path(output_dir or tempfile.gettempdir())
     output_dir.mkdir(parents=True, exist_ok=True)
     safe_voice = ''.join(char for char in voice if char.isalnum() or char in '-_')
@@ -49,7 +50,7 @@ def audition_sample(*, voice: str, rate: str = '+0%', pitch: str = '+0Hz', volum
     partial = output_dir / f'audition-{safe_voice}.partial.mp3'
     partial.unlink(missing_ok=True)
     sample = '这是语音试听。价值投资的核心，是以合理的价格买入优秀的公司，并长期持有。'
-    asyncio.run(_edge_save(sample, partial, voice=voice, rate=rate, pitch=pitch, volume=volume))
+    get_tts_provider(provider_id).synthesize(sample, partial, voice=voice, rate=rate, pitch=pitch, volume=volume)
     validator(partial)
     os.replace(partial, final)
     return final
@@ -78,6 +79,7 @@ def _synthesize_parts_unlocked(
     rate: str = '+0%',
     pitch: str = '+0Hz',
     volume: str = '+0%',
+    provider_id: str = 'edge-tts',
     start: int = 1,
     end: int | None = None,
     indexes: set[int] | None = None,
@@ -90,21 +92,22 @@ def _synthesize_parts_unlocked(
 ) -> dict:
     manifest = load_manifest(job)
     assert_proofread_approved(job, manifest)
-    signature = audio_signature(voice=voice, rate=rate, pitch=pitch, volume=volume)
+    signature = audio_signature(voice=voice, rate=rate, pitch=pitch, volume=volume, provider_id=provider_id)
     if require_preview_approval:
         assert_preview_approved(manifest, signature=signature)
     _invalidate_for_signature(job, manifest, signature)
+    manifest['audio']['provider_id'] = provider_id
     completed = manifest['audio']['completed']
     failures = manifest['audio']['failures']
     parts = manifest['parts']
     end = end or int(parts[-1]['index'])
-    save_func = save_func or _edge_save
+    save_func = save_func or get_tts_provider(provider_id).synthesize
     selected = [item for item in parts if start <= int(item['index']) <= end and (indexes is None or int(item['index']) in indexes)]
     if not selected:
         raise RuntimeError('No matching text parts were selected for synthesis.')
     append_job_log(job, 'synthesis-started', selected=[int(item['index']) for item in selected], signature=signature)
     for item in selected:
-        _emit(progress, index=int(item['index']), state='queued')
+        _emit(progress, index=int(item['index']), state='queued', estimated_percent=0)
     run_failures: list[dict] = []
     for item in selected:
         index = int(item['index'])
@@ -119,7 +122,7 @@ def _synthesize_parts_unlocked(
                     completed[str(index)] = {'text_sha256': item['sha256'], 'signature': signature, **metadata}
                     failures.pop(str(index), None)
                     save_manifest(job, manifest)
-                    _emit(progress, index=index, state='done', reused=True)
+                    _emit(progress, index=index, state='done', reused=True, estimated_percent=100)
                     append_job_log(job, 'part-reused', index=index)
                     continue
             except RuntimeError:
@@ -132,19 +135,20 @@ def _synthesize_parts_unlocked(
         for attempt in range(1, retries + 2):
             partial.unlink(missing_ok=True)
             state = 'running' if attempt == 1 else 'retrying'
-            _emit(progress, index=index, state=state, attempt=attempt)
+            _emit(progress, index=index, state=state, attempt=attempt, estimated_percent=5)
             append_job_log(job, f'part-{state}', index=index, attempt=attempt)
             try:
                 maybe = save_func(text_path.read_text(encoding='utf-8'), partial, voice=voice, rate=rate, pitch=pitch, volume=volume)
                 if asyncio.iscoroutine(maybe):
                     asyncio.run(maybe)
+                _emit(progress, index=index, state='validating', estimated_percent=95)
                 metadata = validator(partial)
                 os.replace(partial, audio_path)
                 completed[str(index)] = {'text_sha256': item['sha256'], 'signature': signature, **metadata}
                 failures.pop(str(index), None)
                 save_manifest(job, manifest)
                 ok = True
-                _emit(progress, index=index, state='done', reused=False)
+                _emit(progress, index=index, state='done', reused=False, estimated_percent=100)
                 append_job_log(job, 'part-completed', index=index, duration_seconds=metadata.get('duration_seconds'))
                 break
             except Exception as exc:
@@ -157,7 +161,7 @@ def _synthesize_parts_unlocked(
             failures[str(index)] = {'error': last_error, 'text_sha256': item['sha256'], 'signature': signature}
             run_failures.append({'index': index, 'error': last_error})
             save_manifest(job, manifest)
-            _emit(progress, index=index, state='failed', error=last_error)
+            _emit(progress, index=index, state='failed', error=last_error, estimated_percent=0)
             append_job_log(job, 'part-failed', index=index, error=last_error)
         if gap_seconds:
             time.sleep(gap_seconds)
@@ -180,11 +184,11 @@ def retry_failed_parts(job: JobPaths, **kwargs: object) -> dict:
         return _synthesize_parts_unlocked(job, indexes=indexes, **kwargs)
 
 
-def approve_preview(job: JobPaths, *, voice: str, rate: str = '+0%', pitch: str = '+0Hz', volume: str = '+0%', validator: Callable[[Path], dict] = validate_mp3) -> dict:
+def approve_preview(job: JobPaths, *, voice: str, rate: str = '+0%', pitch: str = '+0Hz', volume: str = '+0%', provider_id: str = 'edge-tts', validator: Callable[[Path], dict] = validate_mp3) -> dict:
     with job_operation_lock(job, 'approve-preview'):
         manifest = load_manifest(job)
         assert_proofread_approved(job, manifest)
-        signature = audio_signature(voice=voice, rate=rate, pitch=pitch, volume=volume)
+        signature = audio_signature(voice=voice, rate=rate, pitch=pitch, volume=volume, provider_id=provider_id)
         if manifest['audio'].get('signature') != signature:
             raise RuntimeError('Part 1 must be generated with the currently selected voice and speaking rate before approval.')
         first = manifest['parts'][0]

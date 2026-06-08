@@ -4,15 +4,19 @@ from kr_book_to_audio import gui
 
 
 class GuiSurfaceTests(unittest.TestCase):
-    def test_gui_uses_compact_tooltip_surface_and_no_script_conversion_control(self):
+    def test_gui_uses_compact_tooltips_action_cleanup_and_provider_selectors(self):
         source = inspect.getsource(gui)
         self.assertIn("text='ⓘ'", source)
-        self.assertIn('Optional cleanup', source)
-        self.assertIn('Remove metadata-like date/time tags', source)
-        self.assertIn('Remove repeated headers and junk', source)
+        self.assertIn('Optional cleanup analysis', source)
+        self.assertIn('Apply date/time cleanup', source)
+        self.assertIn('Apply repeated-header cleanup', source)
         self.assertIn('Set as default', source)
+        self.assertIn('Processing profile', source)
+        self.assertIn('TTS engine', source)
+        self.assertIn("state='readonly'", source)
         self.assertNotIn('Traditional to Simplified', source)
         self.assertNotIn('self.t2s', source)
+        self.assertNotIn('strip_datetime_tags = tk.BooleanVar', source)
 
 
 if __name__ == '__main__':
