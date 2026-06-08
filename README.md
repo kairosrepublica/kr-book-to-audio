@@ -4,6 +4,18 @@ KR Book To Audio is a local, resumable book-to-audiobook pipeline with multiling
 
 It converts text-layer PDF, EPUB, MOBI or PalmDOC-compatible AZW or PRC, DOCX, TXT and Markdown sources into independently recoverable MP3 parts and an optional merged MP3 audiobook.
 
+## Istanbul Release v1.3.3
+
+This branding-surface checkpoint adds the Owner-approved BA application icon and a restrained bottom footer:
+
+- SVG remains the canonical branding source;
+- PNG remains the desktop fallback asset;
+- a multi-resolution Windows ICO is generated for title-bar, taskbar, Alt + Tab and future portable-executable reuse;
+- missing icon assets never block application startup;
+- the footer displays `COPYRIGHT © KENT REIS` and `KAIROS REPÚBLICA`.
+
+The v1.3.2 durable-resume hotfix remains active.
+
 ## Istanbul Release v1.3.2
 
 This hotfix completes the durable-resume user path:

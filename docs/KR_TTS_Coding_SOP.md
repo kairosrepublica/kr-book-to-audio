@@ -85,3 +85,8 @@ Validation and test runs must use an isolated `KR_B2A_APP_ROOT`. The GUI resume 
 Jobs created before v1.3.2 may not store raw speech controls. The application attempts safe recovery by comparing candidate controls against the stored audio signature. When no exact match exists, it preserves completed MP3 files and asks the operator to regenerate and approve Part 1. Do not bypass that gate.
 
 The default resume panel collapses older resumable attempts for the same source book. Older attempts remain in the rebuildable history index.
+
+
+## Branding surface
+
+The desktop loads the BA branding assets during startup. Missing optional icon assets must not block text extraction, OCR, TTS or resume. The bottom footer is informational only and must remain visually separated from controls, logs and progress state.

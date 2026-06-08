@@ -1,5 +1,16 @@
 # Changelog
 
+## Istanbul Release v1.3.3 - 2026-06-08
+
+Branding surface checkpoint.
+
+### Added
+
+- Owner-provided BA SVG and PNG branding assets.
+- Multi-resolution Windows ICO generated from the approved BA asset.
+- Desktop title-bar, taskbar and Alt + Tab icon setup with missing-asset fallback.
+- Bottom footer with `COPYRIGHT © KENT REIS` on the left and `KAIROS REPÚBLICA` on the right.
+
 ## Istanbul Release v1.3.2 - 2026-06-08
 
 Resume speech-control rehydration and recent-attempt deduplication hotfix.

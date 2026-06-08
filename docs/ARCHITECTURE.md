@@ -108,3 +108,10 @@ The merger trusts only manifest-declared numeric sequences, provider-bound audio
 Each job manifest stores the TTS provider, voice, rate, pitch and volume that produced the approved Part-1 signature. One-click resume restores this task-bound tuple before continuing from the first incomplete Part.
 
 Legacy tasks created before v1.3.2 may not contain the raw control tuple. The application may recover only a tuple that cryptographically matches the stored audio signature. It must not guess custom settings. If no safe match exists, existing MP3 files remain preserved and the operator receives an actionable request to generate and approve Part 1 again.
+
+
+## Branding surface
+
+The Owner-approved SVG is the canonical BA icon source. The PNG asset is retained as a Tk desktop fallback, and a multi-resolution Windows ICO is generated for title-bar, taskbar, Alt + Tab and future portable-executable reuse.
+
+GUI icon setup is deliberately fail-soft: a missing optional branding asset must not block audiobook work. The bottom footer is a separate layout row below the log and Part-status surfaces so it cannot cover progress or operator controls.

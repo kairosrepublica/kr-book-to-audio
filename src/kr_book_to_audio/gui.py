@@ -4,6 +4,7 @@ import json
 import os
 import queue
 import subprocess
+import sys
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -26,6 +27,64 @@ PROFILE_LABELS = {
     'General prose': 'general-prose',
 }
 PROFILE_BY_ID = {value: key for key, value in PROFILE_LABELS.items()}
+
+
+BRANDING_DIR_PARTS = ('assets', 'branding')
+BRANDING_ICO = 'kr_book_to_audio.ico'
+BRANDING_PNG = 'ba_round_corner_small_square_fill-800.png'
+WINDOWS_APP_ID = 'KairosRepublica.KRBookToAudio'
+
+
+def branding_asset_path(filename: str) -> Path | None:
+    """Resolve branding assets from source layouts and future frozen bundles."""
+    roots: list[Path] = []
+    frozen_root = getattr(sys, '_MEIPASS', None)
+    if frozen_root:
+        roots.append(Path(frozen_root))
+    roots.extend([
+        Path(__file__).resolve().parents[2],
+        Path(__file__).resolve().parent,
+    ])
+    for root in roots:
+        candidate = root.joinpath(*BRANDING_DIR_PARTS, filename)
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def set_windows_app_id() -> bool:
+    """Assign a stable Windows app identity when the native API is available."""
+    if os.name != 'nt':
+        return False
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(WINDOWS_APP_ID)
+        return True
+    except (AttributeError, OSError):
+        return False
+
+
+def apply_window_icon(root: tk.Tk, *, resolver=branding_asset_path, image_loader=None) -> bool:
+    """Apply the BA icon without blocking startup when an optional asset is missing."""
+    configured = False
+    ico = resolver(BRANDING_ICO)
+    if ico:
+        try:
+            root.iconbitmap(default=str(ico))
+            configured = True
+        except (tk.TclError, OSError):
+            pass
+    png = resolver(BRANDING_PNG)
+    if png:
+        try:
+            loader = image_loader or (lambda path: tk.PhotoImage(file=str(path)))
+            image = loader(png)
+            root.iconphoto(True, image)
+            root._kr_book_to_audio_icon = image
+            configured = True
+        except (tk.TclError, OSError):
+            pass
+    return configured
 
 
 def manifest_completed(job: JobPaths) -> set[str]:
@@ -101,6 +160,7 @@ class App:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title('KR Book To Audio')
+        apply_window_icon(self.root)
         self.root.geometry('1320x1060')
         self.events: queue.Queue[tuple] = queue.Queue()
         self.job: JobPaths | None = None
@@ -277,6 +337,12 @@ class App:
         self.current_progress = ttk.Progressbar(current, maximum=100)
         self.current_progress.pack(fill='x', padx=5, pady=(3, 5))
         frame.rowconfigure(13, weight=1)
+
+        ttk.Separator(frame, orient='horizontal').grid(row=14, column=0, columnspan=5, sticky='ew', pady=(6, 2))
+        footer = ttk.Frame(frame)
+        footer.grid(row=15, column=0, columnspan=5, sticky='ew', pady=(0, 2))
+        ttk.Label(footer, text='COPYRIGHT © KENT REIS').pack(side='left')
+        ttk.Label(footer, text='KAIROS REPÚBLICA').pack(side='right')
 
     def _tts_engine_id(self) -> str:
         return self.tts_engine_labels.get(self.tts_engine.get(), DEFAULT_TTS_ENGINE)
@@ -686,6 +752,7 @@ class App:
 
 
 def main() -> None:
+    set_windows_app_id()
     root=tk.Tk(); App(root); root.mainloop()
 
 if __name__ == '__main__': main()

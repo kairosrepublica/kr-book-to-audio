@@ -26,6 +26,10 @@ class GuiSurfaceTests(unittest.TestCase):
         self.assertIn('The original speech controls could not be restored safely', source)
         self.assertIn('start=next_part', source)
         self.assertIn('_rehydrate_job_speech_controls', source)
+        self.assertIn('apply_window_icon(self.root)', source)
+        self.assertIn("text='COPYRIGHT © KENT REIS'", source)
+        self.assertIn("text='KAIROS REPÚBLICA'", source)
+        self.assertIn("orient='horizontal'", source)
 
 
 if __name__ == '__main__':
