@@ -14,6 +14,7 @@ from .audio import approve_legacy_resume_controls, approve_preview, audio_signat
 from .config import DEFAULT_KEEP_AWAKE, DEFAULT_PITCH, DEFAULT_PROCESSING_PROFILE, DEFAULT_RATE, DEFAULT_TTS_ENGINE, DEFAULT_VOICE, DEFAULT_VOLUME, default_export_root, load_config, local_work_root, save_config
 from .manifest import load_manifest, save_manifest
 from .history import display_status, format_last_active, list_recent_jobs, list_resumable_jobs, rebuild_history, remove_from_history
+from .export import export_is_verified, finalize_export
 from .recovery import recover_job, scan_and_recover_jobs
 from .models import JobPaths
 from .ocr import OCRAnalysis, analyze_source, preview_sample_ocr, run_recommended_ocr
@@ -64,6 +65,21 @@ def set_windows_app_id() -> bool:
         return True
     except (AttributeError, OSError):
         return False
+
+
+def open_in_file_manager(path: Path, *, select_file: bool = False) -> None:
+    """Open an existing directory, or reveal an existing file, without creating paths silently."""
+    candidate = Path(path).expanduser()
+    if not candidate.exists():
+        raise RuntimeError(f'The selected path does not exist yet: {candidate}')
+    if candidate.is_file():
+        if os.name == 'nt' and select_file:
+            subprocess.Popen(['explorer', '/select,', str(candidate.resolve())])
+        else:
+            folder = candidate.resolve().parent
+            os.startfile(folder) if os.name == 'nt' else subprocess.Popen(['xdg-open', str(folder)])
+        return
+    os.startfile(candidate) if os.name == 'nt' else subprocess.Popen(['xdg-open', str(candidate)])
 
 
 def apply_window_icon(root: tk.Tk, *, resolver=branding_asset_path, image_loader=None) -> bool:
@@ -213,22 +229,23 @@ class App:
         frame = ttk.Frame(self.root, padding=12)
         frame.pack(fill='both', expand=True)
         rows = [
-            ('Book', self.source, self._browse_source, self._set_source_folder_default, 'Select one source book. The default action stores its containing folder for the next file picker.'),
-            ('Local working root', self.work_root, self._browse_work, self._set_work_default, 'Stores temporary processing files, task state and audio parts. Prefer a local non-cloud folder to avoid file-locking conflicts.'),
-            ('Export root', self.export_root, self._browse_export, self._set_export_default, 'Stores finished audiobook files and export-ready MP3 parts. A OneDrive folder is acceptable here.'),
-            ('Pronunciation dictionary', self.dictionary, self._browse_dict, None, 'Optional JSON replacement dictionary for names, polyphonic Chinese characters and recurring terminology.'),
+            ('Book', self.source, self._browse_source, self._open_source, self._set_source_folder_default, 'Select one source book. The default action stores its containing folder for the next file picker.'),
+            ('Local working root', self.work_root, self._browse_work, self._open_work_root, self._set_work_default, 'Stores temporary processing files, task state and audio parts. Prefer a local non-cloud folder to avoid file-locking conflicts.'),
+            ('Export root', self.export_root, self._browse_export, self._open_export_root, self._set_export_default, 'Stores verified audiobook exports and export-ready MP3 parts. A OneDrive folder is acceptable here.'),
+            ('Pronunciation dictionary', self.dictionary, self._browse_dict, self._open_dictionary, None, 'Optional JSON replacement dictionary for names, polyphonic Chinese characters and recurring terminology.'),
         ]
-        for row, (label, var, browse, set_default, tip) in enumerate(rows):
+        for row, (label, var, browse, open_path, set_default, tip) in enumerate(rows):
             ttk.Label(frame, text=label).grid(row=row, column=0, sticky='w', pady=3)
             ttk.Entry(frame, textvariable=var, width=92).grid(row=row, column=1, sticky='ew', pady=3)
             ttk.Button(frame, text='Browse', command=browse).grid(row=row, column=2, padx=(6, 3))
+            ttk.Button(frame, text='Open', command=open_path).grid(row=row, column=3, padx=3)
             if set_default:
-                ttk.Button(frame, text='Set as default', command=set_default).grid(row=row, column=3, padx=3)
-            add_help(frame, tip, row=row, column=4, padx=(4, 0), sticky='w')
+                ttk.Button(frame, text='Set as default', command=set_default).grid(row=row, column=4, padx=3)
+            add_help(frame, tip, row=row, column=5, padx=(4, 0), sticky='w')
         frame.columnconfigure(1, weight=1)
 
         opts = ttk.Labelframe(frame, text='Text and speech')
-        opts.grid(row=4, column=0, columnspan=5, sticky='ew', pady=(8, 4))
+        opts.grid(row=4, column=0, columnspan=6, sticky='ew', pady=(8, 4))
         ttk.Label(opts, text='Processing profile').grid(row=0, column=0, sticky='w', padx=(6, 3), pady=4)
         ttk.Combobox(opts, textvariable=self.profile, values=list(PROFILE_LABELS), state='readonly', width=28).grid(row=0, column=1, sticky='w', padx=3)
         add_help(opts, 'Controls cleanup and chunking rules. Auto detect is recommended. You can override it before Prepare text.', row=0, column=2, sticky='w', padx=(0, 14))
@@ -249,7 +266,7 @@ class App:
         ttk.Entry(opts, textvariable=self.volume, width=10).grid(row=2, column=5, sticky='w', padx=3)
 
         ocr = ttk.Labelframe(frame, text='OCR analysis')
-        ocr.grid(row=5, column=0, columnspan=5, sticky='ew', pady=(4, 4))
+        ocr.grid(row=5, column=0, columnspan=6, sticky='ew', pady=(4, 4))
         self.ocr_status = ttk.Label(ocr, text='Status: Not analyzed')
         self.ocr_status.grid(row=0, column=0, columnspan=4, sticky='w', padx=6, pady=(4, 2))
         self.ocr_reason = ttk.Label(ocr, text='Select a book, then analyze OCR requirements.', wraplength=980)
@@ -270,7 +287,7 @@ class App:
         self.ocr_override_combo.pack(side='left', padx=3)
 
         cleanup = ttk.Labelframe(frame, text='Optional cleanup analysis')
-        cleanup.grid(row=6, column=0, columnspan=5, sticky='ew', pady=(4, 5))
+        cleanup.grid(row=6, column=0, columnspan=6, sticky='ew', pady=(4, 5))
         self.cleanup_junk = ttk.Label(cleanup, text='Repeated headers and junk: Not analyzed')
         self.cleanup_junk.grid(row=0, column=0, sticky='w', padx=6, pady=3)
         btn = ttk.Button(cleanup, text='Apply repeated-header cleanup', command=lambda: self.apply_cleanup('repeated-headers-and-junk'))
@@ -288,7 +305,7 @@ class App:
         self.action_buttons.append(btn)
 
         recent = ttk.Labelframe(frame, text='Resume interrupted or incomplete jobs')
-        recent.grid(row=7, column=0, columnspan=5, sticky='ew', pady=(4, 5))
+        recent.grid(row=7, column=0, columnspan=6, sticky='ew', pady=(4, 5))
         self.recent_jobs = ttk.Treeview(recent, columns=('title', 'status', 'progress', 'last_active'), show='headings', height=4)
         self.recent_jobs.heading('title', text='Book title'); self.recent_jobs.heading('status', text='Status'); self.recent_jobs.heading('progress', text='Progress'); self.recent_jobs.heading('last_active', text='Last active')
         self.recent_jobs.column('title', width=360, anchor='w'); self.recent_jobs.column('status', width=150, anchor='w'); self.recent_jobs.column('progress', width=120, anchor='center'); self.recent_jobs.column('last_active', width=220, anchor='w')
@@ -301,13 +318,14 @@ class App:
         add_help(recent, 'Shows the newest interrupted or incomplete attempt for each source book. Enable Show older attempts only when you intentionally need an earlier checkpoint. Removing an entry does not delete files.', row=1, column=4, sticky='w')
 
         actions = ttk.Frame(frame)
-        actions.grid(row=8, column=0, columnspan=5, sticky='ew', pady=8)
+        actions.grid(row=8, column=0, columnspan=6, sticky='ew', pady=8)
         controls = [
             ('1. Prepare text', self.prepare), ('2. Open cleaned text', self.open_proofread),
             ('3. Approve reviewed text & rebuild', self.approve_proofread), ('4. Audition voice', self.audition),
             ('5. Preview Part 1', self.preview), ('6. Approve Part 1', self.approve_part_one),
             ('7. Synthesize all', self.synthesize), ('Retry failed', self.retry_failed),
-            ('8. Merge MP3', self.merge), ('Load job folder…', self.resume),
+            ('8. Merge MP3', self.merge), ('9. Verify export', self.verify_export_action),
+            ('Load job folder…', self.resume),
         ]
         for index, (text, method) in enumerate(controls):
             button = ttk.Button(actions, text=text, command=method)
@@ -316,20 +334,20 @@ class App:
         for column in range(4): actions.columnconfigure(column, weight=1)
 
         runtime = ttk.Labelframe(frame, text='Long-running operations')
-        runtime.grid(row=9, column=0, columnspan=5, sticky='ew', pady=(0, 5))
+        runtime.grid(row=9, column=0, columnspan=6, sticky='ew', pady=(0, 5))
         ttk.Checkbutton(runtime, text='Keep computer awake during OCR or TTS', variable=self.keep_awake).grid(row=0, column=0, sticky='w', padx=6, pady=4)
         add_help(runtime, 'Prevents automatic system sleep while OCR or TTS is running. It does not block manual sleep, shutdown or lid-close actions.', row=0, column=1, sticky='w', padx=(3, 8))
 
         self.status = ttk.Label(frame, text='Ready.')
-        self.status.grid(row=10, column=0, columnspan=5, sticky='w')
+        self.status.grid(row=10, column=0, columnspan=6, sticky='w')
         ttk.Label(frame, text='Overall progress · exact').grid(row=11, column=0, sticky='w')
         self.overall_progress = ttk.Progressbar(frame, maximum=100)
-        self.overall_progress.grid(row=11, column=1, columnspan=4, sticky='ew', pady=(5, 5))
+        self.overall_progress.grid(row=11, column=1, columnspan=5, sticky='ew', pady=(5, 5))
         self.overall_label = ttk.Label(frame, text='0 / 0 parts completed · 0%')
-        self.overall_label.grid(row=12, column=0, columnspan=5, sticky='w')
+        self.overall_label.grid(row=12, column=0, columnspan=6, sticky='w')
 
         body = ttk.Panedwindow(frame, orient='horizontal')
-        body.grid(row=13, column=0, columnspan=5, sticky='nsew')
+        body.grid(row=13, column=0, columnspan=6, sticky='nsew')
         log_frame = ttk.Labelframe(body, text='Run log')
         parts_frame = ttk.Labelframe(body, text='Part status')
         body.add(log_frame, weight=3); body.add(parts_frame, weight=2)
@@ -349,9 +367,9 @@ class App:
         self.current_progress.pack(fill='x', padx=5, pady=(3, 5))
         frame.rowconfigure(13, weight=1)
 
-        ttk.Separator(frame, orient='horizontal').grid(row=14, column=0, columnspan=5, sticky='ew', pady=(6, 2))
+        ttk.Separator(frame, orient='horizontal').grid(row=14, column=0, columnspan=6, sticky='ew', pady=(6, 2))
         footer = ttk.Frame(frame)
-        footer.grid(row=15, column=0, columnspan=5, sticky='ew', pady=(0, 2))
+        footer.grid(row=15, column=0, columnspan=6, sticky='ew', pady=(0, 2))
         ttk.Label(footer, text='COPYRIGHT © KENT REIS & KAIROS REPÚBLICA').pack(side='left')
         ttk.Label(footer, text='BUILT IN CONSTANTINOPLE WITH LOVE').pack(side='right')
 
@@ -427,6 +445,29 @@ class App:
     def _browse_dict(self) -> None:
         value = filedialog.askopenfilename(filetypes=[('JSON', '*.json'), ('All files', '*.*')])
         if value: self.dictionary.set(value)
+
+    def _open_configured_path(self, raw: str, *, label: str, select_file: bool = False) -> None:
+        value = raw.strip()
+        if not value:
+            messagebox.showerror(label, f'No {label.lower()} path is selected.')
+            return
+        try:
+            open_in_file_manager(Path(value), select_file=select_file)
+            self._log_event(f'Opened {label.lower()}: {value}')
+        except RuntimeError as exc:
+            messagebox.showerror(label, str(exc))
+
+    def _open_source(self) -> None:
+        self._open_configured_path(self.source.get(), label='Book', select_file=True)
+
+    def _open_work_root(self) -> None:
+        self._open_configured_path(self.work_root.get(), label='Local working root')
+
+    def _open_export_root(self) -> None:
+        self._open_configured_path(self.export_root.get(), label='Export root')
+
+    def _open_dictionary(self) -> None:
+        self._open_configured_path(self.dictionary.get(), label='Pronunciation dictionary', select_file=True)
 
     def _persist_default(self, key: str, value: str, message: str) -> None:
         cfg = load_config(); cfg[key] = value; save_config(cfg); self.status.config(text=message)
@@ -621,7 +662,39 @@ class App:
         if self.current_estimate < 94:
             self.root.after(700, lambda: self._estimate_tick(token))
 
+    def _update_export_progress(self, payload: dict) -> None:
+        state = str(payload.get('state') or '')
+        index = int(payload.get('index') or 0)
+        total = int(payload.get('total') or 0)
+        filename = str(payload.get('file') or '')
+        if state == 'finalization-started':
+            self.status.config(text='Finalizing export...')
+            self._log_event(f'Export finalization started. Preparing {total} validated Part MP3 files.')
+        elif state == 'copying-part':
+            self.status.config(text=f'Finalizing export: copying {index} / {total}')
+            self._log_event(f'Export copy: {filename} · {index} / {total}')
+        elif state == 'copy-reused':
+            self.status.config(text=f'Finalizing export: verified existing {index} / {total}')
+        elif state == 'verification-started':
+            self.status.config(text='Verifying exported files...')
+            self._log_event(f'Export verification started. Expected Parts: {total}.')
+        elif state == 'verification-part':
+            self.status.config(text=f'Verifying export: {index} / {total}')
+        elif state == 'verification-pass':
+            self.status.config(text=f'Export verification PASS: {total} Parts')
+            self._log_event(f'Export verification PASS. Exported Parts: {total}.')
+        elif state == 'finalization-completed':
+            self.status.config(text=f'Export completed: {total} Parts')
+            self._log_event(f'Export completed. Verified Parts written to export root: {total}.')
+        elif state in {'verification-failed', 'finalization-failed'}:
+            error = str(payload.get('error') or 'unknown error')
+            self.status.config(text='Export verification FAILED')
+            self._log_event(f'Export verification FAILED: {error}')
+
     def _update_part_progress(self, payload: dict) -> None:
+        if payload.get('event') == 'export':
+            self._update_export_progress(payload)
+            return
         index = int(payload['index'])
         state = str(payload['state'])
         estimate = int(payload.get('estimated_percent', 0))
@@ -779,6 +852,11 @@ class App:
         job=self._job_required()
         if job: self._run('Merge MP3', lambda: str(merge_parts(job)))
 
+    def verify_export_action(self) -> None:
+        job = self._job_required()
+        if job:
+            self._run('Verify export', lambda: finalize_export(job, progress=self._progress_event))
+
     def _load_job(self, job: JobPaths) -> dict | None:
         if not job.manifest.exists():
             messagebox.showerror('Invalid job', 'No _work/job_manifest.json found.')
@@ -913,9 +991,24 @@ class App:
         item = self._selected_recent()
         if not item:
             return
-        output = Path(item.get('export_root') or '')
-        output.mkdir(parents=True, exist_ok=True)
-        os.startfile(output) if os.name == 'nt' else subprocess.Popen(['xdg-open', str(output)])
+        job = JobPaths.from_root(Path(item['job_root']))
+        if export_is_verified(job) and job.export.exists():
+            try:
+                open_in_file_manager(job.export)
+                self._log_event(f'Opened final export folder: {job.export}')
+            except RuntimeError as exc:
+                messagebox.showerror('Open output folder', str(exc))
+            return
+        proceed = messagebox.askyesno(
+            'Final export not ready',
+            'Final export has not been created yet. Open the working audio folder instead?',
+        )
+        if proceed:
+            try:
+                open_in_file_manager(job.parts_audio)
+                self._log_event(f'Opened working audio folder: {job.parts_audio}')
+            except RuntimeError as exc:
+                messagebox.showerror('Open output folder', str(exc))
 
     def remove_selected_history(self) -> None:
         item = self._selected_recent()

@@ -46,5 +46,7 @@ class JobPaths:
         )
 
     def ensure(self) -> None:
-        for path in (self.root, self.work, self.parts_text, self.parts_audio, self.export):
+        # The external export folder is created only after verified finalization.
+        # Creating it during job setup produced misleading empty output folders.
+        for path in (self.root, self.work, self.parts_text, self.parts_audio):
             path.mkdir(parents=True, exist_ok=True)

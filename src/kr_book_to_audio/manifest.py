@@ -54,6 +54,7 @@ def ensure_manifest_defaults(payload: dict) -> dict:
     preview.setdefault('approved_part_sha256', None)
     preview.setdefault('approved_utc', None)
     payload.setdefault('merge', {})
+    payload.setdefault('export', {'status': 'not-finalized'})
     payload.setdefault('cleanup', {'analysis': {}, 'history': []})
     payload.setdefault('ocr', {'analysis': {}, 'history': []})
     execution = payload.setdefault('execution', {})

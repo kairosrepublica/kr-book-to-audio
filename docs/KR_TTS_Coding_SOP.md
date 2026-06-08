@@ -121,3 +121,27 @@ Insert the src directory into sys.path before collect_data_files() runs.
 ```
 
 This prevents an off-by-one entrypoint path and ensures package data is collected from the src-layout package.
+## Export finalization gate
+
+A Book To Audio job is not externally complete merely because all internal Part MP3 checkpoints exist.
+
+After successful full synthesis or successful retry completion:
+
+```text
+1. create `<Export root>/<job>/parts`
+2. atomically copy every validated internal Part MP3
+3. verify exact continuous filenames
+4. verify non-empty readable MP3 files
+5. verify SHA-256 against authoritative checkpoints
+6. write `export_manifest.json` only after PASS
+7. announce `Export completed` only after PASS
+```
+
+For completed legacy jobs with empty export folders, use **9. Verify export** or:
+
+```bash
+kr-book-to-audio finalize-export PATH_TO_JOB
+kr-book-to-audio verify-export PATH_TO_JOB
+```
+
+Do not regenerate TTS when trusted internal checkpoints are sufficient.

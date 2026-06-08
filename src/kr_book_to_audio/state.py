@@ -45,6 +45,7 @@ def reset_audio_state(job: JobPaths, manifest: dict, *, reason: str, signature: 
     clear_files(job.parts_audio, 'part-*.meta.json')
     old_audio = manifest.get('audio', {})
     selected_controls = controls if controls is not None else old_audio.get('controls')
+    manifest['export'] = {'status': 'stale', 'reason': reason}
     manifest['audio'] = {
         'provider_id': (selected_controls or {}).get('provider_id', old_audio.get('provider_id', 'edge-tts')),
         'signature': signature,

@@ -301,7 +301,12 @@ def _synthesize_parts_unlocked(
             time.sleep(gap_seconds)
     finish_execution(job, manifest, status='completed-with-failures' if run_failures else 'idle', last_step='synthesis-finished')
     append_job_log(job, 'synthesis-finished', failures=len(run_failures), completed=len(completed))
-    return {'failures': run_failures, 'completed': sorted(int(index) for index in completed)}
+    export_report = None
+    all_indexes = {int(item['index']) for item in parts}
+    if require_preview_approval and not run_failures and set(int(index) for index in completed) == all_indexes:
+        from .export import finalize_export
+        export_report = finalize_export(job, validator=validator, progress=progress)
+    return {'failures': run_failures, 'completed': sorted(int(index) for index in completed), 'export': export_report}
 
 
 def synthesize_parts(job: JobPaths, *, keep_awake: bool = True, **kwargs: object) -> dict:
@@ -487,5 +492,8 @@ def merge_parts(job: JobPaths, *, output_name: str | None = None, validator: Cal
             raise
         manifest['merge'] = {'output_runtime_only': str(output), 'signature': signature, **merged_metadata}
         save_manifest(job, manifest)
+        from .export import finalize_export, verify_export
+        finalize_export(job, validator=validator)
+        verify_export(job, validator=validator, require_merged=True)
         append_job_log(job, 'merge-completed', output=str(output), duration_seconds=merged_metadata.get('duration_seconds'))
         return output

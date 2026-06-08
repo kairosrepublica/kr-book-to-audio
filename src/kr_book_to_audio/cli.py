@@ -5,6 +5,7 @@ import json
 from .audio import approve_preview, audition_sample, merge_parts, retry_failed_parts, synthesize_parts
 from .config import DEFAULT_CHUNK_CJK, DEFAULT_PROCESSING_PROFILE, DEFAULT_RATE, DEFAULT_TTS_ENGINE, DEFAULT_VOICE, default_export_root, local_work_root
 from .history import list_recent_jobs, rebuild_history, remove_from_history
+from .export import finalize_export, verify_export
 from .recovery import recover_job
 from .extractors import diagnose
 from .models import JobPaths
@@ -41,6 +42,8 @@ def build_parser() -> argparse.ArgumentParser:
         if command == 'tts': p.add_argument('--start', type=int, default=1); p.add_argument('--end', type=int)
     p = sub.add_parser('audition'); p.add_argument('--engine', default=DEFAULT_TTS_ENGINE); p.add_argument('--voice', default=DEFAULT_VOICE); p.add_argument('--rate', default=DEFAULT_RATE); p.add_argument('--output-dir')
     p = sub.add_parser('merge'); p.add_argument('job'); p.add_argument('--name')
+    p = sub.add_parser('finalize-export'); p.add_argument('job')
+    p = sub.add_parser('verify-export'); p.add_argument('job'); p.add_argument('--require-merged', action='store_true')
     p = sub.add_parser('status'); p.add_argument('job')
     return parser
 
@@ -86,6 +89,10 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(approve_preview(job, provider_id=args.engine, voice=args.voice, rate=args.rate), ensure_ascii=False, indent=2)); return 0
     if args.command == 'merge':
         print(merge_parts(job, output_name=args.name)); return 0
+    if args.command == 'finalize-export':
+        print(json.dumps(finalize_export(job), ensure_ascii=False, indent=2)); return 0
+    if args.command == 'verify-export':
+        print(json.dumps(verify_export(job, require_merged=args.require_merged), ensure_ascii=False, indent=2)); return 0
     if args.command == 'status':
         print(json.dumps(job_status(job), ensure_ascii=False, indent=2)); return 0
     raise AssertionError(args.command)

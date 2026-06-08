@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from kr_book_to_audio.audio import audio_signature, merge_parts, validate_mp3
+from kr_book_to_audio.export import export_manifest_path, export_parts_dir
 from kr_book_to_audio.manifest import load_manifest, save_manifest
 from helpers import make_prepared_job
 
@@ -24,5 +25,7 @@ class RealAudioMergeTests(unittest.TestCase):
             self.assertTrue(output.exists())
             self.assertGreater(validate_mp3(output)['duration_seconds'], 0)
             self.assertFalse((job.export / 'book.partial.mp3').exists())
+            self.assertTrue((export_parts_dir(job) / 'part-0001.mp3').exists())
+            self.assertTrue(export_manifest_path(job).exists())
 
 if __name__ == '__main__': unittest.main()

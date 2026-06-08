@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.0.1 — Istanbul Release v2.0.1 Export Finalization
+
+- Automatically finalize externally deliverable Part MP3 files after successful full synthesis or retry completion.
+- Copy validated Part MP3 files atomically into `<Export root>/<job>/parts`.
+- Verify exact filenames, counts, MP3 readability and SHA-256 before declaring export completion.
+- Write `export_manifest.json` only after verification passes.
+- Repair completed legacy jobs with empty external export folders without regenerating audio.
+- Refresh export verification after Merge MP3.
+- Stop `Open output folder` from silently creating misleading empty folders.
+- Add direct Open actions for the Book, Local working root, Export root and Pronunciation dictionary rows.
+
+
 ## 2.0.0 — Istanbul Release 2.0
 
 - Added portable Windows x64 onedir executable packaging with no console window.

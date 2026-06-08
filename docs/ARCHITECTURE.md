@@ -137,3 +137,27 @@ Branding assets live inside package data and resolve from source trees, installe
 ## Portable spec root resolution
 
 `packaging/KRBookToAudio.spec` treats PyInstaller `SPECPATH` as the spec-directory path, resolves the project root through one parent traversal and preloads `src` before hook-based package-data collection.
+## Export finalization and verification
+
+Internal audio checkpoints and externally deliverable exports are deliberately separate.
+
+```text
+_work/parts_audio/part-XXXX.mp3
+    authoritative internal checkpoint
+
+<Export root>/<job>/parts/part-XXXX.mp3
+    externally deliverable atomic copy
+
+<Export root>/<job>/export_manifest.json
+    written only after exported-file verification PASS
+```
+
+`src/kr_book_to_audio/export.py` owns:
+
+```text
+finalize_export(job)
+verify_export(job)
+export_is_verified(job)
+```
+
+`Synthesize all` and successful `Retry failed` completion call `finalize_export`. `Merge MP3` refreshes the export tree and requires merged-file verification. Internal checkpoint MP3 files remain preserved for durable resume.

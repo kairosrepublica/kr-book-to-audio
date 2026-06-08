@@ -13,6 +13,31 @@ It converts text-layer PDF, EPUB, MOBI or PalmDOC-compatible AZW or PRC, DOCX, T
 
 ## Istanbul Release 2.0
 
+## Istanbul Release v2.0.1
+
+This reliability patch separates internal checkpoint completion from externally verified deliverable completion:
+
+- every successful full synthesis or retry completion automatically materializes validated Part MP3 files under the configured Export root;
+- export copying is atomic: a `.partial.mp3` file is validated before it replaces the final exported Part;
+- `export_manifest.json` records the verified deliverable tree;
+- the new **9. Verify export** action repairs completed legacy jobs whose external export folder is empty, without regenerating speech;
+- **Open output folder** no longer creates a misleading empty export directory; when finalization has not happened, it offers to open the internal working-audio folder instead;
+- the Book, Local working root, Export root and Pronunciation dictionary rows now include direct **Open** actions.
+
+The externally deliverable tree is:
+
+```text
+<Export root>\
+    YYYYMMDD_HHMMSS_<Book title>\
+        parts\
+            part-0001.mp3
+            part-0002.mp3
+            ...
+        <Book title>.mp3          # after Merge MP3
+        export_manifest.json
+```
+
+
 The Istanbul Release 2.0 milestone adds a portable Windows x64 desktop distribution and makes long-running synthesis visibly auditable:
 
 - double-click `KRBookToAudio.exe`; no Python command and no PowerShell window;
@@ -154,8 +179,10 @@ Recommended workflow:
 8. Click **Approve reviewed text & rebuild**.
 9. Refresh the voice list when needed, audition the selected voice and generate Part 1.
 10. Approve Part 1 after listening.
-11. Generate all parts, retry recorded failures when needed and merge only after validation completes.
-12. When a prior run ended unexpectedly, select it under **Recent jobs** and click **Resume selected**. The app restores task-bound speech controls, reconciles trusted MP3 parts and continues from the first incomplete Part. Older attempts for the same source book remain preserved but are hidden from the default panel.
+11. Generate all parts and retry recorded failures when needed. After the final validated Part, the app automatically finalizes and verifies the external export tree.
+12. Use **9. Verify export** to repair a completed legacy job whose external export folder is empty, without regenerating speech.
+13. Merge only after Part export verification completes. Merge refreshes `export_manifest.json`.
+14. When a prior run ended unexpectedly, select it under **Recent jobs** and click **Resume selected**. The app restores task-bound speech controls, reconciles trusted MP3 parts and continues from the first incomplete Part. Older attempts for the same source book remain preserved but are hidden from the default panel.
 
 Changing the reviewed text, pronunciation dictionary, selected voice, speaking controls or TTS provider invalidates the relevant approval.
 
@@ -222,6 +249,9 @@ kr-book-to-audio approve-preview PATH_TO_JOB --engine edge-tts --voice zh-CN-Yun
 kr-book-to-audio tts PATH_TO_JOB --engine edge-tts --voice zh-CN-YunyangNeural --rate +0%
 kr-book-to-audio retry-failed PATH_TO_JOB --engine edge-tts --voice zh-CN-YunyangNeural --rate +0%
 kr-book-to-audio merge PATH_TO_JOB
+kr-book-to-audio finalize-export PATH_TO_JOB
+kr-book-to-audio verify-export PATH_TO_JOB
+kr-book-to-audio verify-export PATH_TO_JOB --require-merged
 kr-book-to-audio recent-jobs --rebuild
 kr-book-to-audio recover PATH_TO_JOB
 ```
