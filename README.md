@@ -4,10 +4,15 @@ KR Book To Audio is a local, resumable book-to-audiobook pipeline with multiling
 
 It converts text-layer PDF, EPUB, MOBI or PalmDOC-compatible AZW or PRC, DOCX, TXT and Markdown sources into independently recoverable MP3 parts and an optional merged MP3 audiobook.
 
-## Istanbul Release v1.3.0
+## Istanbul Release v1.3.1
 
-This release adds durable execution recovery on top of the OCR Advisor Foundation and multilingual desktop workflow:
+This hotfix keeps the durable-resume architecture and repairs the Recent-jobs experience:
 
+- validation fixtures are isolated from the real application state root;
+- stale missing-manifest history entries are pruned automatically;
+- the desktop panel shows only interrupted or incomplete resumable tasks;
+- resume statuses and last-active timestamps are rendered in compact human-readable form;
+- the keep-awake control sits under a dedicated long-running-operations section;
 - stable `execution_history.json` recent-job index stored beside the application root;
 - authoritative per-job execution checkpoints in `job_manifest.json`;
 - Recent jobs panel with one-click interrupted-task resume;

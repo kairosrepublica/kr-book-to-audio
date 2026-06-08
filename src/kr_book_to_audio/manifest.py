@@ -2,6 +2,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 import json
+import os
+import tempfile
 from .models import JobPaths
 from .utils import atomic_write_json
 
@@ -91,10 +93,25 @@ def load_manifest(job: JobPaths) -> dict:
     return ensure_manifest_defaults(payload)
 
 
+def _history_sync_allowed(job: JobPaths) -> bool:
+    override = os.environ.get('KR_B2A_HISTORY_SYNC')
+    if override == '0':
+        return False
+    if override == '1':
+        return True
+    try:
+        Path(job.root).resolve().relative_to(Path(tempfile.gettempdir()).resolve())
+        return False
+    except ValueError:
+        return True
+
+
 def save_manifest(job: JobPaths, manifest: dict) -> None:
     manifest = ensure_manifest_defaults(manifest)
     manifest['updated_utc'] = _utc_now()
     atomic_write_json(job.manifest, manifest)
+    if not _history_sync_allowed(job):
+        return
     try:
         from .history import sync_job_history
         sync_job_history(job, manifest)

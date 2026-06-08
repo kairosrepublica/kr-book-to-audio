@@ -97,3 +97,7 @@ Overall progress is exact because it is derived from validated completed MP3 par
 ## Safety boundary
 
 The merger trusts only manifest-declared numeric sequences, provider-bound audio signatures and validated hashes. AZW3 remains rejected until a real parser fixture exists. Cloud API adapters remain disabled until a future explicit privacy, cost and provider-specific approval.
+
+## Recent-job presentation boundary
+
+`execution_history.json` is a rebuildable index. The GUI resume panel displays only valid job roots with an existing `_work/job_manifest.json` and only actionable interrupted or incomplete jobs. Validation fixtures must use an isolated `KR_B2A_APP_ROOT`.

@@ -73,3 +73,7 @@ CLI recovery:
 kr-book-to-audio recent-jobs --rebuild
 kr-book-to-audio recover PATH_TO_JOB
 ```
+
+## Recent-job index safety
+
+Validation and test runs must use an isolated `KR_B2A_APP_ROOT`. The GUI resume panel prunes entries whose job manifest no longer exists and displays only interrupted or incomplete tasks by default.

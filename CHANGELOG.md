@@ -1,5 +1,17 @@
 # Changelog
 
+## Istanbul Release v1.3.1 - 2026-06-08
+
+Recent-jobs usability and validation-state isolation hotfix.
+
+### Fixed
+
+- Isolate validation fixtures from the Owner-local execution history.
+- Prune missing-manifest history entries automatically.
+- Show only interrupted or incomplete resumable jobs in the GUI.
+- Replace raw idle states and ISO timestamps with actionable labels and compact local time.
+- Move keep-awake control into the long-running-operations section.
+
 ## Istanbul Release v1.3.0 - 2026-06-08
 
 Durable resume, Recent jobs and automatic sleep prevention.

@@ -19,6 +19,50 @@ def _empty_history() -> dict[str, Any]:
     return {'schema_version': HISTORY_SCHEMA_VERSION, 'updated_utc': _utc_now(), 'jobs': []}
 
 
+def _entry_manifest_path(entry: dict[str, Any]) -> Path | None:
+    raw = str(entry.get('job_root') or '').strip()
+    if not raw:
+        return None
+    return Path(raw) / '_work' / 'job_manifest.json'
+
+
+def _entry_is_valid(entry: dict[str, Any]) -> bool:
+    manifest = _entry_manifest_path(entry)
+    return bool(manifest and manifest.is_file())
+
+
+def _parse_utc(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+    except ValueError:
+        return None
+
+
+def format_last_active(value: str | None) -> str:
+    parsed = _parse_utc(value)
+    if not parsed:
+        return 'Unknown'
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone().strftime('%Y-%m-%d %H:%M')
+
+
+def display_status(entry: dict[str, Any]) -> str:
+    if entry.get('interrupted'):
+        return 'Interrupted · resume'
+    if int(entry.get('failed_parts') or 0):
+        return 'Failed · retry'
+    total = int(entry.get('total_parts') or 0)
+    completed = int(entry.get('completed_parts') or 0)
+    if total and completed >= total:
+        return 'Completed'
+    if total:
+        return 'Ready to resume'
+    return 'Needs preparation'
+
+
 def _normalize_entry(entry: dict[str, Any]) -> dict[str, Any]:
     return {
         'job_id': str(entry.get('job_id') or ''),
@@ -107,11 +151,36 @@ def sync_job_history(job: JobPaths, manifest: dict[str, Any], path: Path | None 
     write_history(payload, path)
 
 
+def prune_invalid_history(path: Path | None = None) -> dict[str, Any]:
+    path = Path(path or execution_history_path())
+    payload = read_history(path)
+    jobs = payload.get('jobs', [])
+    valid = [item for item in jobs if _entry_is_valid(item)]
+    removed = len(jobs) - len(valid)
+    if removed:
+        payload['jobs'] = valid
+        write_history(payload, path)
+    return {'removed': removed, 'remaining': len(valid)}
+
+
 def list_recent_jobs(path: Path | None = None, *, include_hidden: bool = False) -> list[dict[str, Any]]:
-    jobs = read_history(path).get('jobs', [])
+    path = Path(path or execution_history_path())
+    payload = read_history(path)
+    valid = [item for item in payload.get('jobs', []) if _entry_is_valid(item)]
+    if len(valid) != len(payload.get('jobs', [])):
+        payload['jobs'] = valid
+        write_history(payload, path)
+    jobs = valid
     if not include_hidden:
         jobs = [item for item in jobs if not item.get('hidden')]
     return sorted(jobs, key=lambda item: item.get('updated_utc') or '', reverse=True)
+
+
+def list_resumable_jobs(path: Path | None = None) -> list[dict[str, Any]]:
+    return [
+        item for item in list_recent_jobs(path)
+        if item.get('resumable') or item.get('interrupted') or int(item.get('failed_parts') or 0)
+    ]
 
 
 def remove_from_history(job_id: str, path: Path | None = None) -> None:
@@ -126,7 +195,7 @@ def remove_from_history(job_id: str, path: Path | None = None) -> None:
 def rebuild_history(work_root: Path | None = None, path: Path | None = None) -> dict[str, Any]:
     work_root = Path(work_root or local_work_root())
     path = Path(path or execution_history_path())
-    existing = {item.get('job_id'): item for item in read_history(path).get('jobs', [])}
+    existing = {item.get('job_id'): item for item in read_history(path).get('jobs', []) if _entry_is_valid(item)}
     rebuilt: list[dict[str, Any]] = []
     if work_root.exists():
         for manifest_path in work_root.glob('*/_work/job_manifest.json'):

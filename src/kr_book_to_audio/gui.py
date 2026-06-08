@@ -10,7 +10,7 @@ from tkinter import filedialog, messagebox, ttk
 from .audio import approve_preview, audition_sample, merge_parts, retry_failed_parts, synthesize_parts
 from .config import DEFAULT_KEEP_AWAKE, DEFAULT_PITCH, DEFAULT_PROCESSING_PROFILE, DEFAULT_RATE, DEFAULT_TTS_ENGINE, DEFAULT_VOICE, DEFAULT_VOLUME, default_export_root, load_config, local_work_root, save_config
 from .manifest import load_manifest
-from .history import list_recent_jobs, rebuild_history, remove_from_history
+from .history import display_status, format_last_active, list_recent_jobs, list_resumable_jobs, rebuild_history, remove_from_history
 from .recovery import recover_job, scan_and_recover_jobs
 from .models import JobPaths
 from .ocr import OCRAnalysis, analyze_source, preview_sample_ocr, run_recommended_ocr
@@ -179,8 +179,6 @@ class App:
         ttk.Entry(opts, textvariable=self.pitch, width=10).grid(row=2, column=3, sticky='w', padx=3)
         ttk.Label(opts, text='Volume').grid(row=2, column=4, sticky='e', padx=3)
         ttk.Entry(opts, textvariable=self.volume, width=10).grid(row=2, column=5, sticky='w', padx=3)
-        ttk.Checkbutton(opts, text='Keep computer awake during long operations', variable=self.keep_awake).grid(row=3, column=0, columnspan=4, sticky='w', padx=6, pady=(0, 4))
-        add_help(opts, 'Prevents automatic system sleep while OCR or TTS is running. It does not block manual sleep, shutdown or lid-close actions.', row=3, column=5, sticky='w', padx=(0, 14))
 
         ocr = ttk.Labelframe(frame, text='OCR analysis')
         ocr.grid(row=5, column=0, columnspan=5, sticky='ew', pady=(4, 4))
@@ -221,7 +219,7 @@ class App:
         btn.grid(row=2, column=1, sticky='w', padx=4, pady=(2, 5))
         self.action_buttons.append(btn)
 
-        recent = ttk.Labelframe(frame, text='Recent jobs')
+        recent = ttk.Labelframe(frame, text='Resume interrupted or incomplete jobs')
         recent.grid(row=7, column=0, columnspan=5, sticky='ew', pady=(4, 5))
         self.recent_jobs = ttk.Treeview(recent, columns=('title', 'status', 'progress', 'last_active'), show='headings', height=4)
         self.recent_jobs.heading('title', text='Book title'); self.recent_jobs.heading('status', text='Status'); self.recent_jobs.heading('progress', text='Progress'); self.recent_jobs.heading('last_active', text='Last active')
@@ -231,7 +229,7 @@ class App:
             button = ttk.Button(recent, text=label, command=method)
             button.grid(row=1, column=col, sticky='w', padx=5, pady=(0, 5))
             self.action_buttons.append(button)
-        add_help(recent, 'Recent jobs are indexed in a stable application history file. Each job manifest remains the authoritative recovery state. Removing a history entry does not delete files.', row=1, column=4, sticky='w')
+        add_help(recent, 'Shows only interrupted or incomplete tasks that can be resumed. Completed tasks remain in the rebuildable history index but stay hidden here. Removing an entry does not delete files.', row=1, column=4, sticky='w')
 
         actions = ttk.Frame(frame)
         actions.grid(row=8, column=0, columnspan=5, sticky='ew', pady=8)
@@ -248,16 +246,21 @@ class App:
             self.action_buttons.append(button)
         for column in range(4): actions.columnconfigure(column, weight=1)
 
+        runtime = ttk.Labelframe(frame, text='Long-running operations')
+        runtime.grid(row=9, column=0, columnspan=5, sticky='ew', pady=(0, 5))
+        ttk.Checkbutton(runtime, text='Keep computer awake during OCR or TTS', variable=self.keep_awake).grid(row=0, column=0, sticky='w', padx=6, pady=4)
+        add_help(runtime, 'Prevents automatic system sleep while OCR or TTS is running. It does not block manual sleep, shutdown or lid-close actions.', row=0, column=1, sticky='w', padx=(3, 8))
+
         self.status = ttk.Label(frame, text='Ready.')
-        self.status.grid(row=9, column=0, columnspan=5, sticky='w')
-        ttk.Label(frame, text='Overall progress · exact').grid(row=10, column=0, sticky='w')
+        self.status.grid(row=10, column=0, columnspan=5, sticky='w')
+        ttk.Label(frame, text='Overall progress · exact').grid(row=11, column=0, sticky='w')
         self.overall_progress = ttk.Progressbar(frame, maximum=100)
-        self.overall_progress.grid(row=10, column=1, columnspan=4, sticky='ew', pady=(5, 5))
+        self.overall_progress.grid(row=11, column=1, columnspan=4, sticky='ew', pady=(5, 5))
         self.overall_label = ttk.Label(frame, text='0 / 0 parts completed · 0%')
-        self.overall_label.grid(row=11, column=0, columnspan=5, sticky='w')
+        self.overall_label.grid(row=12, column=0, columnspan=5, sticky='w')
 
         body = ttk.Panedwindow(frame, orient='horizontal')
-        body.grid(row=12, column=0, columnspan=5, sticky='nsew')
+        body.grid(row=13, column=0, columnspan=5, sticky='nsew')
         log_frame = ttk.Labelframe(body, text='Run log')
         parts_frame = ttk.Labelframe(body, text='Part status')
         body.add(log_frame, weight=3); body.add(parts_frame, weight=2)
@@ -273,7 +276,7 @@ class App:
         self.current_label.pack(anchor='w', padx=5, pady=(3, 0))
         self.current_progress = ttk.Progressbar(current, maximum=100)
         self.current_progress.pack(fill='x', padx=5, pady=(3, 5))
-        frame.rowconfigure(12, weight=1)
+        frame.rowconfigure(13, weight=1)
 
     def _tts_engine_id(self) -> str:
         return self.tts_engine_labels.get(self.tts_engine.get(), DEFAULT_TTS_ENGINE)
@@ -570,16 +573,15 @@ class App:
             self._load_job(JobPaths.from_root(Path(value)))
 
     def refresh_recent_jobs(self) -> None:
-        if not list_recent_jobs(include_hidden=True):
-            rebuild_history(Path(self.work_root.get() or local_work_root()))
+        rebuild_history(Path(self.work_root.get() or local_work_root()))
         self.recent_by_iid.clear()
         for iid in self.recent_jobs.get_children():
             self.recent_jobs.delete(iid)
-        for idx, item in enumerate(list_recent_jobs()):
+        for idx, item in enumerate(list_resumable_jobs()):
             iid = f'recent-{idx}'
             self.recent_by_iid[iid] = item
             progress = f"{item.get('completed_parts', 0)} / {item.get('total_parts', 0)}"
-            self.recent_jobs.insert('', 'end', iid=iid, values=(item.get('title'), item.get('status'), progress, item.get('updated_utc')))
+            self.recent_jobs.insert('', 'end', iid=iid, values=(item.get('title'), display_status(item), progress, format_last_active(item.get('updated_utc'))))
 
     def _selected_recent(self) -> dict | None:
         selected = self.recent_jobs.selection()
