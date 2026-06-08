@@ -11,13 +11,25 @@ DEFAULT_PITCH = '+0Hz'
 DEFAULT_VOLUME = '+0%'
 DEFAULT_PROCESSING_PROFILE = 'auto'
 DEFAULT_CHUNK_CJK = 9000
+DEFAULT_KEEP_AWAKE = True
+
+
+def app_root() -> Path:
+    override = os.environ.get('KR_B2A_APP_ROOT')
+    if override:
+        return Path(override)
+    base = os.environ.get('LOCALAPPDATA')
+    if base:
+        return Path(base) / APP_NAME
+    return Path.home() / f'.{APP_NAME.lower()}'
 
 
 def local_work_root() -> Path:
-    base = os.environ.get('LOCALAPPDATA')
-    if base:
-        return Path(base) / APP_NAME / 'jobs'
-    return Path.home() / f'.{APP_NAME.lower()}' / 'jobs'
+    return app_root() / 'jobs'
+
+
+def execution_history_path() -> Path:
+    return app_root() / 'execution_history.json'
 
 
 def default_export_root() -> Path:
@@ -38,6 +50,7 @@ def _migrate_config(payload: dict) -> dict:
     migrated.setdefault('pitch', DEFAULT_PITCH)
     migrated.setdefault('volume', DEFAULT_VOLUME)
     migrated.setdefault('show_all_voices', False)
+    migrated.setdefault('keep_awake', DEFAULT_KEEP_AWAKE)
     return migrated
 
 

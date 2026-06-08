@@ -32,4 +32,11 @@ class ProviderRegistryTests(unittest.TestCase):
         self.assertIn('ocr', snapshot)
 
 
+    def test_ocr_registry_declares_page_checkpoint_capability(self):
+        snapshot = provider_registry_snapshot()
+        mapping = {item['provider_id']: item for item in snapshot['ocr']}
+        self.assertTrue(mapping['paddleocr-ppocrv5']['page_checkpoint_capable'])
+        self.assertTrue(mapping['tesseract-local']['page_checkpoint_capable'])
+        self.assertFalse(mapping['ocrmypdf-tesseract']['page_checkpoint_capable'])
+
 if __name__ == '__main__': unittest.main()

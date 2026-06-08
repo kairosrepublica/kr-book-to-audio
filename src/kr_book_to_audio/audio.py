@@ -7,20 +7,92 @@ import subprocess
 import tempfile
 import time
 from .manifest import load_manifest, save_manifest
+from .execution import begin_execution, checkpoint_execution, finish_execution
+from .power import keep_computer_awake
 from .providers import get_tts_provider
 from .models import JobPaths
 from .state import approve_preview_state, assert_preview_approved, assert_proofread_approved, reset_audio_state
-from .utils import append_job_log, job_operation_lock, require_command, sha256_file, sha256_text
+from .utils import append_job_log, atomic_write_json, clear_files, job_operation_lock, require_command, sha256_file, sha256_text
 
 ProgressCallback = Callable[[dict], None]
 
 
-def audio_signature(*, voice: str, rate: str, pitch: str = '+0Hz', volume: str = '+0%', provider_id: str = 'edge-tts') -> str:
+def audio_signature(*, voice: str, rate: str = '+0%', pitch: str = '+0Hz', volume: str = '+0%', provider_id: str = 'edge-tts') -> str:
     return sha256_text('|'.join([provider_id, voice, rate, pitch, volume]))
 
 
 def expected_audio_paths(job: JobPaths, manifest: dict) -> list[Path]:
     return [job.parts_audio / f"part-{int(item['index']):04d}.mp3" for item in manifest['parts']]
+
+
+def audio_metadata_path(audio_path: Path) -> Path:
+    return audio_path.with_name(audio_path.stem + '.meta.json')
+
+
+def _write_audio_sidecar(audio_path: Path, *, text_sha256: str, signature: str, metadata: dict) -> None:
+    atomic_write_json(audio_metadata_path(audio_path), {'text_sha256': text_sha256, 'signature': signature, **metadata})
+
+
+def reconcile_audio_state(job: JobPaths, *, validator: Callable[[Path], dict] = None) -> dict:
+    """Conservatively reconcile durable MP3 state after an abnormal exit."""
+    validator = validator or validate_mp3
+    manifest = load_manifest(job)
+    signature = manifest.get('audio', {}).get('signature')
+    completed = manifest.setdefault('audio', {}).setdefault('completed', {})
+    failures = manifest['audio'].setdefault('failures', {})
+    removed_partial = []
+    for path in job.parts_audio.glob('part-*.partial.mp3'):
+        removed_partial.append(path.name); path.unlink(missing_ok=True)
+    expected = {int(item['index']): item for item in manifest.get('parts', [])}
+    reused = []
+    removed_invalid = []
+    for index, item in expected.items():
+        audio_path = job.parts_audio / f'part-{index:04d}.mp3'
+        sidecar = audio_metadata_path(audio_path)
+        saved = completed.get(str(index))
+        if saved:
+            try:
+                metadata = validator(audio_path)
+                if saved.get('text_sha256') != item.get('sha256') or saved.get('signature') != signature or saved.get('sha256') != metadata.get('sha256'):
+                    raise RuntimeError('stale completion record')
+                _write_audio_sidecar(audio_path, text_sha256=item['sha256'], signature=signature, metadata=metadata)
+                reused.append(index)
+                continue
+            except Exception:
+                completed.pop(str(index), None)
+                failures.pop(str(index), None)
+                audio_path.unlink(missing_ok=True); sidecar.unlink(missing_ok=True)
+                removed_invalid.append(index)
+                continue
+        if audio_path.exists() and sidecar.exists() and signature:
+            try:
+                import json
+                side = json.loads(sidecar.read_text(encoding='utf-8'))
+                metadata = validator(audio_path)
+                if side.get('text_sha256') != item.get('sha256') or side.get('signature') != signature or side.get('sha256') != metadata.get('sha256'):
+                    raise RuntimeError('untrusted orphan MP3')
+                completed[str(index)] = {'text_sha256': item['sha256'], 'signature': signature, **metadata}
+                failures.pop(str(index), None)
+                reused.append(index)
+                continue
+            except Exception:
+                pass
+        if audio_path.exists():
+            audio_path.unlink(missing_ok=True)
+            audio_metadata_path(audio_path).unlink(missing_ok=True)
+            sidecar.unlink(missing_ok=True)
+            removed_invalid.append(index)
+    valid_indexes = sorted(int(value) for value in completed)
+    total = len(expected)
+    next_part = next((index for index in range(1, total + 1) if index not in set(valid_indexes)), None)
+    execution = manifest.setdefault('execution', {})
+    if next_part is None and total:
+        execution.update({'status': 'idle', 'resume_required': False, 'current_part': None, 'current_part_state': None})
+    elif execution.get('status') == 'running':
+        execution.update({'status': 'interrupted', 'resume_required': True})
+    save_manifest(job, manifest)
+    append_job_log(job, 'audio-reconciled', reused=reused, removed_invalid=removed_invalid, removed_partial=removed_partial, next_part=next_part)
+    return {'reused': reused, 'removed_invalid': removed_invalid, 'removed_partial': removed_partial, 'next_part': next_part, 'completed': valid_indexes, 'total': total}
 
 
 def validate_mp3(path: Path, *, ffprobe: str = 'ffprobe') -> dict:
@@ -105,6 +177,7 @@ def _synthesize_parts_unlocked(
     selected = [item for item in parts if start <= int(item['index']) <= end and (indexes is None or int(item['index']) in indexes)]
     if not selected:
         raise RuntimeError('No matching text parts were selected for synthesis.')
+    begin_execution(job, manifest, 'synthesize-parts', current_part=int(selected[0]['index']))
     append_job_log(job, 'synthesis-started', selected=[int(item['index']) for item in selected], signature=signature)
     for item in selected:
         _emit(progress, index=int(item['index']), state='queued', estimated_percent=0)
@@ -114,6 +187,7 @@ def _synthesize_parts_unlocked(
         text_path = job.parts_text / item['file']
         audio_path = job.parts_audio / f'part-{index:04d}.mp3'
         partial = audio_path.with_name(audio_path.stem + '.partial.mp3')
+        checkpoint_execution(job, manifest, last_step='part-started', current_part=index, current_part_state='running')
         if audio_path.exists():
             try:
                 metadata = validator(audio_path)
@@ -122,12 +196,14 @@ def _synthesize_parts_unlocked(
                     completed[str(index)] = {'text_sha256': item['sha256'], 'signature': signature, **metadata}
                     failures.pop(str(index), None)
                     save_manifest(job, manifest)
+                    checkpoint_execution(job, manifest, last_step='part-reused', current_part=index, current_part_state='done', last_completed_part=index)
                     _emit(progress, index=index, state='done', reused=True, estimated_percent=100)
                     append_job_log(job, 'part-reused', index=index)
                     continue
             except RuntimeError:
                 pass
             audio_path.unlink(missing_ok=True)
+            audio_metadata_path(audio_path).unlink(missing_ok=True)
         completed.pop(str(index), None)
         save_manifest(job, manifest)
         ok = False
@@ -144,10 +220,12 @@ def _synthesize_parts_unlocked(
                 _emit(progress, index=index, state='validating', estimated_percent=95)
                 metadata = validator(partial)
                 os.replace(partial, audio_path)
+                _write_audio_sidecar(audio_path, text_sha256=item['sha256'], signature=signature, metadata=metadata)
                 completed[str(index)] = {'text_sha256': item['sha256'], 'signature': signature, **metadata}
                 failures.pop(str(index), None)
                 save_manifest(job, manifest)
                 ok = True
+                checkpoint_execution(job, manifest, last_step='part-completed', current_part=index, current_part_state='done', last_completed_part=index)
                 _emit(progress, index=index, state='done', reused=False, estimated_percent=100)
                 append_job_log(job, 'part-completed', index=index, duration_seconds=metadata.get('duration_seconds'))
                 break
@@ -160,28 +238,42 @@ def _synthesize_parts_unlocked(
         if not ok:
             failures[str(index)] = {'error': last_error, 'text_sha256': item['sha256'], 'signature': signature}
             run_failures.append({'index': index, 'error': last_error})
-            save_manifest(job, manifest)
+            checkpoint_execution(job, manifest, last_step='part-failed', current_part=index, current_part_state='failed')
             _emit(progress, index=index, state='failed', error=last_error, estimated_percent=0)
             append_job_log(job, 'part-failed', index=index, error=last_error)
         if gap_seconds:
             time.sleep(gap_seconds)
-    save_manifest(job, manifest)
+    finish_execution(job, manifest, status='completed-with-failures' if run_failures else 'idle', last_step='synthesis-finished')
     append_job_log(job, 'synthesis-finished', failures=len(run_failures), completed=len(completed))
     return {'failures': run_failures, 'completed': sorted(int(index) for index in completed)}
 
 
-def synthesize_parts(job: JobPaths, **kwargs: object) -> dict:
+def synthesize_parts(job: JobPaths, *, keep_awake: bool = True, **kwargs: object) -> dict:
     with job_operation_lock(job, 'synthesize-parts'):
-        return _synthesize_parts_unlocked(job, **kwargs)
+        with keep_computer_awake(keep_awake):
+            try:
+                return _synthesize_parts_unlocked(job, **kwargs)
+            except Exception:
+                manifest = load_manifest(job)
+                if manifest.get('execution', {}).get('status') == 'running':
+                    finish_execution(job, manifest, status='failed', last_step='synthesis-aborted')
+                raise
 
 
-def retry_failed_parts(job: JobPaths, **kwargs: object) -> dict:
+def retry_failed_parts(job: JobPaths, *, keep_awake: bool = True, **kwargs: object) -> dict:
     with job_operation_lock(job, 'retry-failed-parts'):
-        manifest = load_manifest(job)
-        indexes = {int(index) for index in manifest['audio'].get('failures', {})}
-        if not indexes:
-            raise RuntimeError('No failed audio parts are recorded for retry.')
-        return _synthesize_parts_unlocked(job, indexes=indexes, **kwargs)
+        with keep_computer_awake(keep_awake):
+            manifest = load_manifest(job)
+            indexes = {int(index) for index in manifest['audio'].get('failures', {})}
+            if not indexes:
+                raise RuntimeError('No failed audio parts are recorded for retry.')
+            try:
+                return _synthesize_parts_unlocked(job, indexes=indexes, **kwargs)
+            except Exception:
+                manifest = load_manifest(job)
+                if manifest.get('execution', {}).get('status') == 'running':
+                    finish_execution(job, manifest, status='failed', last_step='retry-aborted')
+                raise
 
 
 def approve_preview(job: JobPaths, *, voice: str, rate: str = '+0%', pitch: str = '+0Hz', volume: str = '+0%', provider_id: str = 'edge-tts', validator: Callable[[Path], dict] = validate_mp3) -> dict:

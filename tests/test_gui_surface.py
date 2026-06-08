@@ -17,6 +17,10 @@ class GuiSurfaceTests(unittest.TestCase):
         self.assertNotIn('Traditional to Simplified', source)
         self.assertNotIn('self.t2s', source)
         self.assertNotIn('strip_datetime_tags = tk.BooleanVar', source)
+        self.assertIn('Recent jobs', source)
+        self.assertIn('Resume selected', source)
+        self.assertIn('Keep computer awake during long operations', source)
+        self.assertIn('Resume synthesis from Part', source)
 
 
 if __name__ == '__main__':

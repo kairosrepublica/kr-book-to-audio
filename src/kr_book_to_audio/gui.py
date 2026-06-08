@@ -8,8 +8,10 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from .audio import approve_preview, audition_sample, merge_parts, retry_failed_parts, synthesize_parts
-from .config import DEFAULT_PITCH, DEFAULT_PROCESSING_PROFILE, DEFAULT_RATE, DEFAULT_TTS_ENGINE, DEFAULT_VOICE, DEFAULT_VOLUME, default_export_root, load_config, local_work_root, save_config
+from .config import DEFAULT_KEEP_AWAKE, DEFAULT_PITCH, DEFAULT_PROCESSING_PROFILE, DEFAULT_RATE, DEFAULT_TTS_ENGINE, DEFAULT_VOICE, DEFAULT_VOLUME, default_export_root, load_config, local_work_root, save_config
 from .manifest import load_manifest
+from .history import list_recent_jobs, rebuild_history, remove_from_history
+from .recovery import recover_job, scan_and_recover_jobs
 from .models import JobPaths
 from .ocr import OCRAnalysis, analyze_source, preview_sample_ocr, run_recommended_ocr
 from .pipeline import approve_proofread_and_rebuild, apply_cleanup_and_rebuild, job_status, prepare_job
@@ -99,7 +101,7 @@ class App:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title('KR Book To Audio')
-        self.root.geometry('1320x930')
+        self.root.geometry('1320x1060')
         self.events: queue.Queue[tuple] = queue.Queue()
         self.job: JobPaths | None = None
         self.busy = BusyGuard()
@@ -124,6 +126,8 @@ class App:
         self.pitch = tk.StringVar(value=cfg.get('pitch', DEFAULT_PITCH))
         self.volume = tk.StringVar(value=cfg.get('volume', DEFAULT_VOLUME))
         self.show_all_voices = tk.BooleanVar(value=bool(cfg.get('show_all_voices', False)))
+        self.keep_awake = tk.BooleanVar(value=bool(cfg.get('keep_awake', DEFAULT_KEEP_AWAKE)))
+        self.recent_by_iid: dict[str, dict] = {}
         self.voice_records = load_voice_cache(self._tts_engine_id())
         self.advanced_ocr_visible = False
         self.ocr_override = tk.StringVar(value='Use recommended engine')
@@ -134,6 +138,7 @@ class App:
         self.profile.trace_add('write', self._profile_changed)
         self.show_all_voices.trace_add('write', self._profile_changed)
         self.root.after(100, self._drain)
+        self.root.after(250, self._startup_recovery)
         self._refresh_voices(background=True)
 
     def _build(self) -> None:
@@ -174,6 +179,8 @@ class App:
         ttk.Entry(opts, textvariable=self.pitch, width=10).grid(row=2, column=3, sticky='w', padx=3)
         ttk.Label(opts, text='Volume').grid(row=2, column=4, sticky='e', padx=3)
         ttk.Entry(opts, textvariable=self.volume, width=10).grid(row=2, column=5, sticky='w', padx=3)
+        ttk.Checkbutton(opts, text='Keep computer awake during long operations', variable=self.keep_awake).grid(row=3, column=0, columnspan=4, sticky='w', padx=6, pady=(0, 4))
+        add_help(opts, 'Prevents automatic system sleep while OCR or TTS is running. It does not block manual sleep, shutdown or lid-close actions.', row=3, column=5, sticky='w', padx=(0, 14))
 
         ocr = ttk.Labelframe(frame, text='OCR analysis')
         ocr.grid(row=5, column=0, columnspan=5, sticky='ew', pady=(4, 4))
@@ -214,8 +221,20 @@ class App:
         btn.grid(row=2, column=1, sticky='w', padx=4, pady=(2, 5))
         self.action_buttons.append(btn)
 
+        recent = ttk.Labelframe(frame, text='Recent jobs')
+        recent.grid(row=7, column=0, columnspan=5, sticky='ew', pady=(4, 5))
+        self.recent_jobs = ttk.Treeview(recent, columns=('title', 'status', 'progress', 'last_active'), show='headings', height=4)
+        self.recent_jobs.heading('title', text='Book title'); self.recent_jobs.heading('status', text='Status'); self.recent_jobs.heading('progress', text='Progress'); self.recent_jobs.heading('last_active', text='Last active')
+        self.recent_jobs.column('title', width=360, anchor='w'); self.recent_jobs.column('status', width=150, anchor='w'); self.recent_jobs.column('progress', width=120, anchor='center'); self.recent_jobs.column('last_active', width=220, anchor='w')
+        self.recent_jobs.grid(row=0, column=0, columnspan=5, sticky='ew', padx=5, pady=5)
+        for col, (label, method) in enumerate([('Resume selected', self.resume_selected), ('Open output folder', self.open_selected_output), ('Remove from history', self.remove_selected_history), ('Refresh', self.refresh_recent_jobs)]):
+            button = ttk.Button(recent, text=label, command=method)
+            button.grid(row=1, column=col, sticky='w', padx=5, pady=(0, 5))
+            self.action_buttons.append(button)
+        add_help(recent, 'Recent jobs are indexed in a stable application history file. Each job manifest remains the authoritative recovery state. Removing a history entry does not delete files.', row=1, column=4, sticky='w')
+
         actions = ttk.Frame(frame)
-        actions.grid(row=7, column=0, columnspan=5, sticky='ew', pady=8)
+        actions.grid(row=8, column=0, columnspan=5, sticky='ew', pady=8)
         controls = [
             ('1. Prepare text', self.prepare), ('2. Open cleaned text', self.open_proofread),
             ('3. Approve reviewed text & rebuild', self.approve_proofread), ('4. Audition voice', self.audition),
@@ -230,15 +249,15 @@ class App:
         for column in range(4): actions.columnconfigure(column, weight=1)
 
         self.status = ttk.Label(frame, text='Ready.')
-        self.status.grid(row=8, column=0, columnspan=5, sticky='w')
-        ttk.Label(frame, text='Overall progress · exact').grid(row=9, column=0, sticky='w')
+        self.status.grid(row=9, column=0, columnspan=5, sticky='w')
+        ttk.Label(frame, text='Overall progress · exact').grid(row=10, column=0, sticky='w')
         self.overall_progress = ttk.Progressbar(frame, maximum=100)
-        self.overall_progress.grid(row=9, column=1, columnspan=4, sticky='ew', pady=(5, 5))
+        self.overall_progress.grid(row=10, column=1, columnspan=4, sticky='ew', pady=(5, 5))
         self.overall_label = ttk.Label(frame, text='0 / 0 parts completed · 0%')
-        self.overall_label.grid(row=10, column=0, columnspan=5, sticky='w')
+        self.overall_label.grid(row=11, column=0, columnspan=5, sticky='w')
 
         body = ttk.Panedwindow(frame, orient='horizontal')
-        body.grid(row=11, column=0, columnspan=5, sticky='nsew')
+        body.grid(row=12, column=0, columnspan=5, sticky='nsew')
         log_frame = ttk.Labelframe(body, text='Run log')
         parts_frame = ttk.Labelframe(body, text='Part status')
         body.add(log_frame, weight=3); body.add(parts_frame, weight=2)
@@ -254,7 +273,7 @@ class App:
         self.current_label.pack(anchor='w', padx=5, pady=(3, 0))
         self.current_progress = ttk.Progressbar(current, maximum=100)
         self.current_progress.pack(fill='x', padx=5, pady=(3, 5))
-        frame.rowconfigure(11, weight=1)
+        frame.rowconfigure(12, weight=1)
 
     def _tts_engine_id(self) -> str:
         return self.tts_engine_labels.get(self.tts_engine.get(), DEFAULT_TTS_ENGINE)
@@ -303,7 +322,7 @@ class App:
         return Path(self.dictionary.get()) if self.dictionary.get().strip() else None
 
     def _save_runtime_cfg(self) -> None:
-        cfg = load_config(); cfg.update({'dictionary': self.dictionary.get(), 'tts_engine': self._tts_engine_id(), 'voice': self.voice.get(), 'rate': self.rate.get(), 'pitch': self.pitch.get(), 'volume': self.volume.get(), 'processing_profile': self._profile_id(), 'show_all_voices': self.show_all_voices.get()}); save_config(cfg)
+        cfg = load_config(); cfg.update({'dictionary': self.dictionary.get(), 'tts_engine': self._tts_engine_id(), 'voice': self.voice.get(), 'rate': self.rate.get(), 'pitch': self.pitch.get(), 'volume': self.volume.get(), 'processing_profile': self._profile_id(), 'show_all_voices': self.show_all_voices.get(), 'keep_awake': self.keep_awake.get()}); save_config(cfg)
 
     def _job_required(self) -> JobPaths | None:
         if not self.job: messagebox.showerror('No job', 'Prepare text or resume an existing job first.')
@@ -459,7 +478,7 @@ class App:
         def done(path: Path):
             self.source.set(str(path)); self.ocr_status.config(text='Status: OCR output ready · select Prepare text')
             self.ocr_reason.config(text=f'OCR output selected as the new source: {path}')
-        self._run('Run recommended OCR', lambda: run_recommended_ocr(Path(self.source.get()), self.ocr_analysis, output_dir=output_dir, provider_id=provider), done)
+        self._run('Run recommended OCR', lambda: run_recommended_ocr(Path(self.source.get()), self.ocr_analysis, output_dir=output_dir, provider_id=provider, keep_awake=self.keep_awake.get()), done)
 
     def prepare(self) -> None:
         value = self.source.get().strip()
@@ -507,7 +526,7 @@ class App:
         job = self._job_required()
         if not job: return
         def work():
-            result=synthesize_parts(job, provider_id=self._tts_engine_id(), voice=self.voice.get(), rate=self.rate.get(), pitch=self.pitch.get(), volume=self.volume.get(), start=1, end=1, require_preview_approval=False, progress=self._progress_event)
+            result=synthesize_parts(job, provider_id=self._tts_engine_id(), voice=self.voice.get(), rate=self.rate.get(), pitch=self.pitch.get(), volume=self.volume.get(), start=1, end=1, require_preview_approval=False, progress=self._progress_event, keep_awake=self.keep_awake.get())
             if not result['failures']: self._play(job.parts_audio / 'part-0001.mp3')
             return result
         self._run('Preview Part 1', work)
@@ -519,22 +538,90 @@ class App:
     def synthesize(self) -> None:
         job=self._job_required()
         if not job or not messagebox.askyesno('Synthesize all parts', 'Synthesize all manifest-declared parts now?'): return
-        self._run('Synthesize all parts', lambda: synthesize_parts(job, provider_id=self._tts_engine_id(), voice=self.voice.get(), rate=self.rate.get(), pitch=self.pitch.get(), volume=self.volume.get(), progress=self._progress_event))
+        self._run('Synthesize all parts', lambda: synthesize_parts(job, provider_id=self._tts_engine_id(), voice=self.voice.get(), rate=self.rate.get(), pitch=self.pitch.get(), volume=self.volume.get(), progress=self._progress_event, keep_awake=self.keep_awake.get()))
 
     def retry_failed(self) -> None:
         job=self._job_required()
-        if job: self._run('Retry failed parts', lambda: retry_failed_parts(job, provider_id=self._tts_engine_id(), voice=self.voice.get(), rate=self.rate.get(), pitch=self.pitch.get(), volume=self.volume.get(), progress=self._progress_event))
+        if job: self._run('Retry failed parts', lambda: retry_failed_parts(job, provider_id=self._tts_engine_id(), voice=self.voice.get(), rate=self.rate.get(), pitch=self.pitch.get(), volume=self.volume.get(), progress=self._progress_event, keep_awake=self.keep_awake.get()))
 
     def merge(self) -> None:
         job=self._job_required()
         if job: self._run('Merge MP3', lambda: str(merge_parts(job)))
 
+    def _load_job(self, job: JobPaths) -> dict | None:
+        if not job.manifest.exists():
+            messagebox.showerror('Invalid job', 'No _work/job_manifest.json found.')
+            return None
+        report = recover_job(job)
+        self.job = job
+        self._reset_part_view()
+        manifest = load_manifest(job)
+        self.dictionary.set(manifest.get('text', {}).get('dictionary_path_runtime_only') or '')
+        self._refresh_job_view()
+        self.refresh_recent_jobs()
+        next_part = report.get('next_part')
+        if report.get('interrupted') or report.get('stale_lock_removed'):
+            self.status.config(text=f'Interrupted task recovered. Resume from Part {next_part or "complete"}.')
+        return report
+
     def resume(self) -> None:
         value=filedialog.askdirectory(title='Select an existing job folder', initialdir=self.work_root.get() or str(local_work_root()))
-        if not value: return
-        job=JobPaths.from_root(Path(value))
-        if not job.manifest.exists(): messagebox.showerror('Invalid job', 'No _work/job_manifest.json found.'); return
-        self.job=job; self._reset_part_view(); manifest=load_manifest(job); self.dictionary.set(manifest.get('text', {}).get('dictionary_path_runtime_only') or ''); self._refresh_job_view()
+        if value:
+            self._load_job(JobPaths.from_root(Path(value)))
+
+    def refresh_recent_jobs(self) -> None:
+        if not list_recent_jobs(include_hidden=True):
+            rebuild_history(Path(self.work_root.get() or local_work_root()))
+        self.recent_by_iid.clear()
+        for iid in self.recent_jobs.get_children():
+            self.recent_jobs.delete(iid)
+        for idx, item in enumerate(list_recent_jobs()):
+            iid = f'recent-{idx}'
+            self.recent_by_iid[iid] = item
+            progress = f"{item.get('completed_parts', 0)} / {item.get('total_parts', 0)}"
+            self.recent_jobs.insert('', 'end', iid=iid, values=(item.get('title'), item.get('status'), progress, item.get('updated_utc')))
+
+    def _selected_recent(self) -> dict | None:
+        selected = self.recent_jobs.selection()
+        if not selected:
+            messagebox.showinfo('Recent jobs', 'Select a recent job first.')
+            return None
+        return self.recent_by_iid.get(selected[0])
+
+    def resume_selected(self) -> None:
+        item = self._selected_recent()
+        if not item:
+            return
+        report = self._load_job(JobPaths.from_root(Path(item['job_root'])))
+        if not report or not report.get('next_part') or not self.job:
+            return
+        status = job_status(self.job)
+        if not status.get('proofread_approved') or not status.get('preview_approved'):
+            self.status.config(text=f"Task loaded at Part {report['next_part']}. Approve reviewed text and Part 1 before resuming synthesis.")
+            return
+        next_part = int(report['next_part'])
+        self._run(f'Resume synthesis from Part {next_part}', lambda: synthesize_parts(self.job, provider_id=self._tts_engine_id(), voice=self.voice.get(), rate=self.rate.get(), pitch=self.pitch.get(), volume=self.volume.get(), progress=self._progress_event, keep_awake=self.keep_awake.get()))
+
+    def open_selected_output(self) -> None:
+        item = self._selected_recent()
+        if not item:
+            return
+        output = Path(item.get('export_root') or '')
+        output.mkdir(parents=True, exist_ok=True)
+        os.startfile(output) if os.name == 'nt' else subprocess.Popen(['xdg-open', str(output)])
+
+    def remove_selected_history(self) -> None:
+        item = self._selected_recent()
+        if item and messagebox.askyesno('Remove from history', 'Hide this task from Recent jobs? Task files will not be deleted.'):
+            remove_from_history(str(item['job_id']))
+            self.refresh_recent_jobs()
+
+    def _startup_recovery(self) -> None:
+        reports = scan_and_recover_jobs(Path(self.work_root.get() or local_work_root()))
+        self.refresh_recent_jobs()
+        interrupted = [item for item in reports if item.get('recovered')]
+        if interrupted:
+            self.status.config(text=f'{len(interrupted)} interrupted task(s) detected. Select one under Recent jobs to resume.')
 
 
 def main() -> None:

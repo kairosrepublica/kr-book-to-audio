@@ -8,6 +8,7 @@ import json
 import os
 import re
 import shutil
+import signal
 
 if TYPE_CHECKING:
     from .models import JobPaths
@@ -58,6 +59,64 @@ def require_command(name: str, hint: str | None = None) -> str:
     raise RuntimeError(f'Required command not found: {name}{suffix}')
 
 
+
+
+def process_is_alive(pid: int) -> bool:
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    if pid == os.getpid():
+        return True
+    if os.name == 'nt':
+        try:
+            import ctypes
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            STILL_ACTIVE = 259
+            handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if not handle:
+                return False
+            try:
+                code = ctypes.c_ulong()
+                if not ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                    return False
+                return int(code.value) == STILL_ACTIVE
+            finally:
+                ctypes.windll.kernel32.CloseHandle(handle)
+        except Exception:
+            return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def read_operation_lock(job: 'JobPaths') -> dict:
+    path = job.work / '.operation.lock'
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding='utf-8'))
+        return payload if isinstance(payload, dict) else {}
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return {}
+
+
+def recover_stale_lock(job: 'JobPaths', *, process_checker=process_is_alive) -> dict:
+    path = job.work / '.operation.lock'
+    if not path.exists():
+        return {'removed': False, 'reason': 'absent'}
+    payload = read_operation_lock(job)
+    pid = payload.get('pid')
+    if not isinstance(pid, int):
+        raise RuntimeError(f'Job lock is malformed and cannot be cleared automatically: {path}')
+    if process_checker(pid):
+        return {'removed': False, 'reason': 'live-process', 'pid': pid}
+    path.unlink(missing_ok=True)
+    append_job_log(job, 'stale-lock-removed', pid=pid, operation=payload.get('operation'))
+    return {'removed': True, 'reason': 'dead-process', 'pid': pid}
+
 def append_job_log(job: 'JobPaths', event: str, **fields: object) -> None:
     """Append one durable JSON-line event to a job log."""
     job.run_log.parent.mkdir(parents=True, exist_ok=True)
@@ -71,6 +130,10 @@ def job_operation_lock(job: 'JobPaths', operation: str) -> Iterator[None]:
     """Reject concurrent mutations of one job directory across GUI and CLI processes."""
     job.work.mkdir(parents=True, exist_ok=True)
     lock_path = job.work / '.operation.lock'
+    if lock_path.exists():
+        recovered = recover_stale_lock(job)
+        if recovered.get('reason') == 'live-process':
+            raise RuntimeError(f'Job is busy: {lock_path}')
     try:
         descriptor = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     except FileExistsError as exc:

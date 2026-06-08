@@ -133,6 +133,7 @@ def enabled_tts_specs() -> list[ProviderSpec]:
 
 class OCRProvider:
     spec: ProviderSpec
+    page_checkpoint_capable = False
 
     def available(self) -> tuple[bool, str]:
         raise NotImplementedError
@@ -142,6 +143,7 @@ class OCRProvider:
 
 
 class PaddleOCRProvider(OCRProvider):
+    page_checkpoint_capable = True
     spec = ProviderSpec('paddleocr-ppocrv5', 'ocr', 'PaddleOCR · PP-OCRv5', 'local-python', 'enabled-when-discovered', True, notes='Local OCR provider. Models may download on first use.')
 
     def available(self) -> tuple[bool, str]:
@@ -217,6 +219,7 @@ class PaddleOCRProvider(OCRProvider):
 
 
 class TesseractOCRProvider(OCRProvider):
+    page_checkpoint_capable = True
     spec = ProviderSpec('tesseract-local', 'ocr', 'Tesseract local OCR', 'local-process', 'enabled-when-discovered', True, notes='Local fallback OCR provider.')
 
     def available(self) -> tuple[bool, str]:
@@ -267,6 +270,7 @@ class TesseractOCRProvider(OCRProvider):
 
 
 class OCRmyPDFProvider(OCRProvider):
+    page_checkpoint_capable = False
     spec = ProviderSpec('ocrmypdf-tesseract', 'ocr', 'OCRmyPDF · Tesseract searchable PDF', 'local-process', 'enabled-when-discovered', True, notes='Adds a searchable text layer. Text is extracted by the normal PDF path afterwards.')
 
     def available(self) -> tuple[bool, str]:
@@ -327,7 +331,15 @@ def get_ocr_provider(provider_id: str) -> OCRProvider:
 
 
 def provider_registry_snapshot() -> dict[str, list[dict[str, Any]]]:
+    ocr = []
+    for provider_id, spec in OCR_PROVIDER_SPECS.items():
+        payload = spec.to_dict()
+        try:
+            payload['page_checkpoint_capable'] = bool(get_ocr_provider(provider_id).page_checkpoint_capable)
+        except Exception:
+            payload['page_checkpoint_capable'] = False
+        ocr.append(payload)
     return {
         'tts': [spec.to_dict() for spec in TTS_PROVIDER_SPECS.values()],
-        'ocr': [spec.to_dict() for spec in OCR_PROVIDER_SPECS.values()],
+        'ocr': ocr,
     }

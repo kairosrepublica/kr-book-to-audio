@@ -170,4 +170,6 @@ def job_status(job: JobPaths) -> dict:
         'estimated_hours': round(text_units(job.tts_text.read_text(encoding='utf-8')) / 4.6 / 3600, 2) if job.tts_text.exists() else 0.0,
         'cleanup_analysis': manifest.get('cleanup', {}).get('analysis', {}),
         'processing_profile': manifest.get('text', {}).get('processing_profile', manifest.get('options', {}).get('processing_profile', 'auto')),
+        'execution': manifest.get('execution', {}),
+        'resumable': bool(len(completed) < len(manifest.get('parts', [])) or failures or manifest.get('execution', {}).get('resume_required')),
     }

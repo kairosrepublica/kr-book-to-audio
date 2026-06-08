@@ -4,10 +4,18 @@ KR Book To Audio is a local, resumable book-to-audiobook pipeline with multiling
 
 It converts text-layer PDF, EPUB, MOBI or PalmDOC-compatible AZW or PRC, DOCX, TXT and Markdown sources into independently recoverable MP3 parts and an optional merged MP3 audiobook.
 
-## Istanbul Release v1.2.0
+## Istanbul Release v1.3.0
 
-This release adds an OCR Advisor Foundation and a clearer multilingual desktop workflow:
+This release adds durable execution recovery on top of the OCR Advisor Foundation and multilingual desktop workflow:
 
+- stable `execution_history.json` recent-job index stored beside the application root;
+- authoritative per-job execution checkpoints in `job_manifest.json`;
+- Recent jobs panel with one-click interrupted-task resume;
+- stale lock recovery only after the prior process is confirmed dead;
+- partial MP3 cleanup and conservative orphan-MP3 reconciliation;
+- MP3 sidecars binding text hash and audio signature before manifest adoption;
+- automatic Windows keep-awake during long OCR and TTS operations;
+- OCR provider page-checkpoint capability declarations for future page-level resume;
 - automatic OCR applicability and necessity analysis;
 - local OCR capability discovery for PaddleOCR, Tesseract, OCRmyPDF, language packs and advisory GPU availability;
 - automatic local OCR recommendation instead of forcing the operator to understand engine details;
@@ -95,8 +103,27 @@ Recommended workflow:
 9. Refresh the voice list when needed, audition the selected voice and generate Part 1.
 10. Approve Part 1 after listening.
 11. Generate all parts, retry recorded failures when needed and merge only after validation completes.
+12. When a prior run ended unexpectedly, select it under **Recent jobs** and click **Resume selected**. The app reconciles trusted MP3 parts and continues from the first incomplete Part.
 
 Changing the reviewed text, pronunciation dictionary, selected voice, speaking controls or TTS provider invalidates the relevant approval.
+
+## Durable resume boundary
+
+The application stores two persistence layers:
+
+```text
+Application-level recent-job index:
+%LOCALAPPDATA%\KRBookToAudio\execution_history.json
+
+Per-job authoritative state:
+<job>\_work\job_manifest.json
+```
+
+If Windows sleeps, a terminal window closes or the Python process exits unexpectedly, validated MP3 parts remain reusable. On restart the desktop detects interrupted work, clears stale locks only after confirming that the prior PID is dead, deletes residual `.partial.mp3` files, reconciles trusted sidecar-bound orphan MP3 files and resumes from the first incomplete Part.
+
+The application-level index is rebuildable navigation state. Each job manifest remains authoritative. Removing an entry from **Recent jobs** does not delete files.
+
+Windows keep-awake is enabled by default during long OCR and TTS operations. It blocks automatic sleep only; it does not block manual sleep, shutdown or lid-close policy.
 
 ## OCR boundary
 
@@ -112,7 +139,7 @@ recommends a local OCR provider
 supports sample preview before full OCR
 ```
 
-Cloud OCR adapters are reserved but disabled. No page is uploaded to a remote API in v1.2.0.
+Cloud OCR adapters are reserved but disabled. No page is uploaded to a remote API in v1.3.0.
 
 ## Optional cleanup boundary
 
@@ -143,6 +170,8 @@ kr-book-to-audio approve-preview PATH_TO_JOB --engine edge-tts --voice zh-CN-Yun
 kr-book-to-audio tts PATH_TO_JOB --engine edge-tts --voice zh-CN-YunyangNeural --rate +0%
 kr-book-to-audio retry-failed PATH_TO_JOB --engine edge-tts --voice zh-CN-YunyangNeural --rate +0%
 kr-book-to-audio merge PATH_TO_JOB
+kr-book-to-audio recent-jobs --rebuild
+kr-book-to-audio recover PATH_TO_JOB
 ```
 
 ## Input boundary

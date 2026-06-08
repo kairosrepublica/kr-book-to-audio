@@ -8,6 +8,8 @@ import subprocess
 import tempfile
 from .extractors import _decode_stdout, _pdf_sample_pages, diagnose
 from .providers import OCR_PROVIDER_SPECS, ProviderUnavailable, get_ocr_provider
+from .power import keep_computer_awake
+from .utils import atomic_write_json
 
 
 @dataclass(frozen=True)
@@ -137,18 +139,27 @@ def preview_sample_ocr(source: Path, analysis: OCRAnalysis, *, provider_id: str 
     return {'provider_id': provider_id, 'language': analysis.language, 'sample_pages': analysis.sample_pages, 'quality_score': quality_score(text), 'preview_text': text[:4000]}
 
 
-def run_recommended_ocr(source: Path, analysis: OCRAnalysis, *, output_dir: Path, provider_id: str | None = None) -> Path:
+def run_recommended_ocr(source: Path, analysis: OCRAnalysis, *, output_dir: Path, provider_id: str | None = None, keep_awake: bool = True) -> Path:
     provider_id = provider_id or analysis.recommended_provider
     if not provider_id or provider_id == 'native-text':
         raise ProviderUnavailable('No local OCR provider is available or OCR is not required.')
     provider = get_ocr_provider(provider_id)
     output_dir.mkdir(parents=True, exist_ok=True)
-    if provider_id == 'ocrmypdf-tesseract':
-        target = output_dir / f'{Path(source).stem}_searchable.pdf'
-        provider.create_searchable_pdf(Path(source), target, language=analysis.language)  # type: ignore[attr-defined]
+    state_path = output_dir / '_ocr_execution.json'
+    provider_capability = bool(getattr(provider, 'page_checkpoint_capable', False))
+    atomic_write_json(state_path, {'status': 'running', 'source': str(Path(source)), 'provider_id': provider_id, 'language': analysis.language, 'page_checkpoint_capable': provider_capability})
+    try:
+        with keep_computer_awake(keep_awake):
+            if provider_id == 'ocrmypdf-tesseract':
+                target = output_dir / f'{Path(source).stem}_searchable.pdf'
+                provider.create_searchable_pdf(Path(source), target, language=analysis.language)  # type: ignore[attr-defined]
+            else:
+                target = output_dir / f'{Path(source).stem}_ocr.txt'
+                with tempfile.TemporaryDirectory(prefix='kr-b2a-ocr-full-') as tmp:
+                    text = provider.recognize_pdf_to_text(Path(source), language=analysis.language, output_dir=Path(tmp))
+                target.write_text(text, encoding='utf-8', newline='\n')
+        atomic_write_json(state_path, {'status': 'completed', 'source': str(Path(source)), 'provider_id': provider_id, 'language': analysis.language, 'page_checkpoint_capable': provider_capability, 'output': str(target)})
         return target
-    target = output_dir / f'{Path(source).stem}_ocr.txt'
-    with tempfile.TemporaryDirectory(prefix='kr-b2a-ocr-full-') as tmp:
-        text = provider.recognize_pdf_to_text(Path(source), language=analysis.language, output_dir=Path(tmp))
-    target.write_text(text, encoding='utf-8', newline='\n')
-    return target
+    except Exception as exc:
+        atomic_write_json(state_path, {'status': 'interrupted-or-failed', 'source': str(Path(source)), 'provider_id': provider_id, 'language': analysis.language, 'page_checkpoint_capable': provider_capability, 'error': f'{type(exc).__name__}: {exc}'})
+        raise

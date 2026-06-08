@@ -1,5 +1,25 @@
 # Changelog
 
+## Istanbul Release v1.3.0 - 2026-06-08
+
+Durable resume, Recent jobs and automatic sleep prevention.
+
+### Added
+
+- Stable application-level `execution_history.json` recent-job index.
+- Authoritative per-job execution checkpoints with PID, heartbeat, current Part and resume state.
+- Recent jobs desktop panel with one-click resume, output-folder access and non-destructive history hiding.
+- Conservative stale-lock recovery after confirming the prior process is dead.
+- Partial MP3 cleanup, sidecar metadata and safe orphan-MP3 reconciliation.
+- Automatic Windows keep-awake during long OCR and TTS work.
+- OCR provider page-checkpoint capability declarations and OCR execution-state snapshots.
+- CLI commands for recent-job listing and recovery.
+
+### Fixed
+
+- Resume selected now continues from the first incomplete Part when approvals remain valid.
+- Malformed lock files remain blocked instead of being deleted automatically.
+
 ## Istanbul Release v1.2.0 - 2026-06-08
 
 OCR Advisor Foundation, provider registries and multilingual desktop UX.

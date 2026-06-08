@@ -49,3 +49,27 @@ Action buttons remove only high-confidence candidates. Review-required repeated 
 ## Recovery
 
 Re-run failed parts against the same job directory. Valid manifest-matched MP3 files are reused. Invalid, modified or stale files are regenerated.
+
+## Durable resume and Recent jobs
+
+Long TTS tasks are resumable at Part granularity. The authoritative state lives in each job manifest. The global `execution_history.json` file is only a rebuildable index for recent-job navigation.
+
+When a prior process ended unexpectedly:
+
+1. relaunch the desktop application;
+2. select the interrupted row under **Recent jobs**;
+3. click **Resume selected**;
+4. the application verifies that the prior PID is dead before clearing a stale lock;
+5. residual `.partial.mp3` files are removed;
+6. completed MP3 records are revalidated;
+7. only sidecar-bound orphan MP3 files with matching text and audio signatures are adopted;
+8. synthesis resumes from the first incomplete Part when proofreading and Part-1 approval remain valid.
+
+Windows keep-awake is enabled by default during long OCR and TTS work. It prevents automatic sleep only.
+
+CLI recovery:
+
+```bash
+kr-book-to-audio recent-jobs --rebuild
+kr-book-to-audio recover PATH_TO_JOB
+```

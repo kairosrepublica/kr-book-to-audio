@@ -5,7 +5,7 @@ import json
 from .models import JobPaths
 from .utils import atomic_write_json
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def _utc_now() -> str:
@@ -14,10 +14,14 @@ def _utc_now() -> str:
 
 def ensure_manifest_defaults(payload: dict) -> dict:
     """Upgrade additive fields while retiring obsolete text-conversion flags."""
-    if payload.get('schema_version') == 1:
+    if payload.get('schema_version') in {1, 2}:
+        old_schema = payload.get('schema_version')
         payload['schema_version'] = SCHEMA_VERSION
-        payload.setdefault('migration', {}).setdefault('upgraded_from_schema', 1)
+        payload.setdefault('migration', {}).setdefault('upgraded_from_schema', old_schema)
     payload.setdefault('schema_version', SCHEMA_VERSION)
+    if not payload.get('job_id'):
+        import uuid
+        payload['job_id'] = uuid.uuid4().hex
     payload.setdefault('paths', {})
     text = payload.setdefault('text', {})
     payload.setdefault('parts', [])
@@ -49,13 +53,27 @@ def ensure_manifest_defaults(payload: dict) -> dict:
     payload.setdefault('merge', {})
     payload.setdefault('cleanup', {'analysis': {}, 'history': []})
     payload.setdefault('ocr', {'analysis': {}, 'history': []})
+    execution = payload.setdefault('execution', {})
+    execution.setdefault('status', 'idle')
+    execution.setdefault('last_operation', None)
+    execution.setdefault('last_step', None)
+    execution.setdefault('current_part', None)
+    execution.setdefault('current_part_state', None)
+    execution.setdefault('last_completed_part', None)
+    execution.setdefault('pid', None)
+    execution.setdefault('operation_started_utc', None)
+    execution.setdefault('heartbeat_utc', None)
+    execution.setdefault('interrupted_detected_utc', None)
+    execution.setdefault('resume_required', False)
     text.setdefault('processing_profile', options.get('processing_profile', 'auto'))
     return payload
 
 
 def new_manifest(*, source: Path, source_sha256: str, title: str, options: dict) -> dict:
+    import uuid
     return ensure_manifest_defaults({
         'schema_version': SCHEMA_VERSION,
+        'job_id': uuid.uuid4().hex,
         'created_utc': _utc_now(),
         'updated_utc': _utc_now(),
         'source': {'name': source.name, 'sha256': source_sha256},
@@ -68,7 +86,7 @@ def load_manifest(job: JobPaths) -> dict:
     if not job.manifest.exists():
         raise FileNotFoundError(f'Job manifest not found: {job.manifest}')
     payload = json.loads(job.manifest.read_text(encoding='utf-8'))
-    if payload.get('schema_version') not in {1, SCHEMA_VERSION}:
+    if payload.get('schema_version') not in {1, 2, SCHEMA_VERSION}:
         raise RuntimeError('Unsupported job manifest schema version')
     return ensure_manifest_defaults(payload)
 
@@ -77,3 +95,9 @@ def save_manifest(job: JobPaths, manifest: dict) -> None:
     manifest = ensure_manifest_defaults(manifest)
     manifest['updated_utc'] = _utc_now()
     atomic_write_json(job.manifest, manifest)
+    try:
+        from .history import sync_job_history
+        sync_job_history(job, manifest)
+    except Exception:
+        # The application-level history is a rebuildable index, never the job authority.
+        pass

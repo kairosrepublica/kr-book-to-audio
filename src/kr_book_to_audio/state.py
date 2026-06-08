@@ -41,7 +41,8 @@ def reset_preview_gate(manifest: dict) -> None:
 
 def reset_audio_state(job: JobPaths, manifest: dict, *, reason: str, signature: str | None = None) -> None:
     clear_files(job.parts_audio, 'part-*.mp3')
-    clear_files(job.parts_audio, 'part-*.partial')
+    clear_files(job.parts_audio, 'part-*.partial.mp3')
+    clear_files(job.parts_audio, 'part-*.meta.json')
     manifest['audio'] = {'signature': signature, 'completed': {}, 'failures': {}}
     reset_preview_gate(manifest)
     append_job_log(job, 'audio-invalidated', reason=reason, signature=signature)
