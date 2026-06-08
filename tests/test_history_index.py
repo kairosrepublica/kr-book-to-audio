@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 from helpers import make_prepared_job
 from kr_book_to_audio.config import execution_history_path, local_work_root
-from kr_book_to_audio.history import display_status, format_last_active, list_recent_jobs, list_resumable_jobs, prune_invalid_history, read_history, rebuild_history, remove_from_history, write_history
+from kr_book_to_audio.history import display_status, format_last_active, list_recent_jobs, list_resumable_jobs, prune_invalid_history, read_history, rebuild_history, remove_from_history, source_identity_key, write_history
 
 
 class HistoryIndexTests(unittest.TestCase):
@@ -66,7 +66,7 @@ class HistoryIndexTests(unittest.TestCase):
                 {'job_id': 'resume', 'title': 'book', 'job_root': str(roots[1]), 'total_parts': 34, 'completed_parts': 16, 'resumable': True},
             ]})
             self.assertEqual([item['job_id'] for item in list_resumable_jobs()], ['resume'])
-            self.assertEqual(display_status(list_resumable_jobs()[0]), 'Ready to resume')
+            self.assertEqual(display_status(list_resumable_jobs()[0]), 'Resume available')
 
     def test_resumable_view_collapses_older_attempts_for_same_source(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {'KR_B2A_APP_ROOT': str(Path(td) / 'app'), 'KR_B2A_HISTORY_SYNC': '1'}):
@@ -82,6 +82,36 @@ class HistoryIndexTests(unittest.TestCase):
             ]})
             self.assertEqual([item['job_id'] for item in list_resumable_jobs()], ['newest'])
             self.assertEqual([item['job_id'] for item in list_resumable_jobs(include_older_attempts=True)], ['newest', 'older'])
+
+
+    def test_legacy_attempts_collapse_by_normalized_source_path_when_sha_is_missing(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {'KR_B2A_APP_ROOT': str(Path(td) / 'app'), 'KR_B2A_HISTORY_SYNC': '1'}):
+            roots=[]
+            for name in ('older','newest'):
+                root=Path(td)/name; (root/'_work').mkdir(parents=True); (root/'_work'/'job_manifest.json').write_text('{}',encoding='utf-8'); roots.append(root)
+            write_history({'jobs':[
+                {'job_id':'older','title':'same','job_root':str(roots[0]),'source_path_runtime_only':str(Path(td)/'Book.PDF'),'updated_utc':'2026-01-01T00:00:00Z','total_parts':34,'completed_parts':16,'resumable':True},
+                {'job_id':'newest','title':'same','job_root':str(roots[1]),'source_path_runtime_only':str(Path(td)/'Book.PDF'),'updated_utc':'2026-02-01T00:00:00Z','total_parts':34,'completed_parts':16,'resumable':True},
+            ]})
+            self.assertEqual([item['job_id'] for item in list_resumable_jobs()], ['newest'])
+            self.assertEqual([item['job_id'] for item in list_resumable_jobs(include_older_attempts=True)], ['newest','older'])
+
+    def test_legacy_attempts_collapse_by_part_aggregate_when_source_path_is_missing(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {'KR_B2A_APP_ROOT': str(Path(td) / 'app'), 'KR_B2A_HISTORY_SYNC': '1'}):
+            roots=[]
+            for name in ('older','newest'):
+                root=Path(td)/name; (root/'_work').mkdir(parents=True); (root/'_work'/'job_manifest.json').write_text('{}',encoding='utf-8'); roots.append(root)
+            write_history({'jobs':[
+                {'job_id':'older','title':'same','job_root':str(roots[0]),'parts_aggregate_sha256':'parts-hash','updated_utc':'2026-01-01T00:00:00Z','total_parts':34,'completed_parts':16,'resumable':True},
+                {'job_id':'newest','title':'same','job_root':str(roots[1]),'parts_aggregate_sha256':'parts-hash','updated_utc':'2026-02-01T00:00:00Z','total_parts':34,'completed_parts':16,'resumable':True},
+            ]})
+            self.assertEqual([item['job_id'] for item in list_resumable_jobs()], ['newest'])
+
+    def test_resume_state_is_human_readable(self):
+        self.assertEqual(display_status({'resume_state':'resume-ready'}), 'Resume ready')
+        self.assertEqual(display_status({'resume_state':'voice-check-required'}), 'Voice check required')
+        self.assertEqual(display_status({'resume_state':'text-review-required'}), 'Text review required')
+        self.assertEqual(display_status({'resume_state':'blocked'}), 'Blocked')
 
     def test_last_active_is_compact_local_time(self):
         rendered = format_last_active('2026-06-08T06:46:12.020013+00:00')

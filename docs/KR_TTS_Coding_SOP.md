@@ -90,3 +90,8 @@ The default resume panel collapses older resumable attempts for the same source 
 ## Branding surface
 
 The desktop loads the BA branding assets during startup. Missing optional icon assets must not block text extraction, OCR, TTS or resume. The bottom footer is informational only and must remain visually separated from controls, logs and progress state.
+
+
+## Legacy resume verification
+
+If a resumable legacy task lacks a complete speech-control snapshot, use the guided voice-check flow. Compare preserved Part 1 with a candidate preview. Approve only when they match closely enough for continuation. Existing MP3 files remain preserved until the Owner approves the rebind.

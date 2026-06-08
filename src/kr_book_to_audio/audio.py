@@ -351,6 +351,102 @@ def approve_preview(job: JobPaths, *, voice: str, rate: str = '+0%', pitch: str 
         return approval
 
 
+
+def generate_resume_voice_check(
+    job: JobPaths,
+    *,
+    voice: str,
+    rate: str = '+0%',
+    pitch: str = '+0Hz',
+    volume: str = '+0%',
+    provider_id: str = 'edge-tts',
+    save_func: Callable[..., object] | None = None,
+    validator: Callable[[Path], dict] = validate_mp3,
+) -> dict:
+    """Create a candidate Part-1 preview without mutating preserved completed audio."""
+    with job_operation_lock(job, 'resume-voice-check'):
+        manifest = load_manifest(job)
+        assert_proofread_approved(job, manifest)
+        first = manifest.get('parts', [None])[0]
+        if not first:
+            raise RuntimeError('No Part 1 text exists for resume voice verification.')
+        existing = job.parts_audio / 'part-0001.mp3'
+        saved = manifest.get('audio', {}).get('completed', {}).get('1')
+        if not saved or not existing.exists():
+            raise RuntimeError('The preserved Part 1 MP3 is missing. Start a new preview before resuming.')
+        existing_metadata = validator(existing)
+        if saved.get('sha256') != existing_metadata.get('sha256') or saved.get('text_sha256') != first.get('sha256'):
+            raise RuntimeError('The preserved Part 1 MP3 does not match its checkpoint. Start a new preview before resuming.')
+        controls = speech_controls(voice=voice, rate=rate, pitch=pitch, volume=volume, provider_id=provider_id)
+        signature = audio_signature(**controls)
+        folder = job.work / 'resume_voice_check'
+        folder.mkdir(parents=True, exist_ok=True)
+        candidate = folder / 'candidate-part-0001.mp3'
+        partial = folder / 'candidate-part-0001.partial.mp3'
+        partial.unlink(missing_ok=True)
+        save_func = save_func or get_tts_provider(provider_id).synthesize
+        maybe = save_func((job.parts_text / first['file']).read_text(encoding='utf-8'), partial, voice=voice, rate=rate, pitch=pitch, volume=volume)
+        if asyncio.iscoroutine(maybe):
+            asyncio.run(maybe)
+        candidate_metadata = validator(partial)
+        os.replace(partial, candidate)
+        append_job_log(job, 'resume-voice-check-generated', signature=signature, preserved_part_one=str(existing), candidate_part_one=str(candidate))
+        return {
+            'existing_part_one': str(existing),
+            'candidate_part_one': str(candidate),
+            'candidate_metadata': candidate_metadata,
+            'controls': controls,
+            'signature': signature,
+        }
+
+
+def approve_legacy_resume_controls(
+    job: JobPaths,
+    *,
+    voice: str,
+    rate: str = '+0%',
+    pitch: str = '+0Hz',
+    volume: str = '+0%',
+    provider_id: str = 'edge-tts',
+    validator: Callable[[Path], dict] = validate_mp3,
+) -> dict:
+    """Bind preserved legacy MP3 files to an Owner-approved control tuple after audible comparison."""
+    with job_operation_lock(job, 'approve-legacy-resume-controls'):
+        manifest = load_manifest(job)
+        assert_proofread_approved(job, manifest)
+        controls = speech_controls(voice=voice, rate=rate, pitch=pitch, volume=volume, provider_id=provider_id)
+        signature = audio_signature(**controls)
+        completed = manifest.get('audio', {}).get('completed', {})
+        records = {str(int(item['index'])): item for item in manifest.get('parts', [])}
+        if not completed:
+            raise RuntimeError('No preserved MP3 files exist for legacy resume approval.')
+        rebound: list[int] = []
+        for key in sorted(completed, key=lambda value: int(value)):
+            item = records.get(str(int(key)))
+            if not item:
+                raise RuntimeError(f'Preserved Part {key} is not declared by the current manifest.')
+            audio_path = job.parts_audio / f'part-{int(key):04d}.mp3'
+            metadata = validator(audio_path)
+            saved = completed[key]
+            if saved.get('text_sha256') != item.get('sha256') or saved.get('sha256') != metadata.get('sha256'):
+                raise RuntimeError(f'Preserved Part {key} failed checkpoint verification.')
+            completed[key] = {'text_sha256': item['sha256'], 'signature': signature, **metadata, 'legacy_owner_voice_check': True}
+            _write_audio_sidecar(audio_path, text_sha256=item['sha256'], signature=signature, metadata=metadata, controls=controls)
+            rebound.append(int(key))
+        manifest['audio']['provider_id'] = provider_id
+        manifest['audio']['signature'] = signature
+        manifest['audio']['controls'] = controls
+        approval = approve_preview_state(job, manifest, signature=signature)
+        manifest.setdefault('resume', {}).setdefault('legacy_owner_voice_checks', []).append({
+            'signature': signature,
+            'controls': controls,
+            'rebound_parts': rebound,
+            'approved_utc': approval.get('approved_utc'),
+        })
+        save_manifest(job, manifest)
+        append_job_log(job, 'legacy-resume-controls-approved', signature=signature, rebound_parts=rebound)
+        return {'approval': approval, 'controls': controls, 'signature': signature, 'rebound_parts': rebound}
+
 def merge_parts(job: JobPaths, *, output_name: str | None = None, validator: Callable[[Path], dict] = validate_mp3) -> Path:
     with job_operation_lock(job, 'merge-parts'):
         manifest = load_manifest(job)

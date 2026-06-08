@@ -5,7 +5,7 @@ from kr_book_to_audio.gui import apply_window_icon, branding_asset_path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BRANDING = ROOT / 'assets' / 'branding'
+BRANDING = ROOT / 'src' / 'kr_book_to_audio' / 'assets' / 'branding'
 
 
 class FakeRoot:

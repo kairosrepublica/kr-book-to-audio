@@ -8,7 +8,7 @@ import sys
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-from .audio import approve_preview, audio_signature, audition_sample, merge_parts, recover_speech_controls, retry_failed_parts, speech_controls, synthesize_parts
+from .audio import approve_legacy_resume_controls, approve_preview, audio_signature, audition_sample, generate_resume_voice_check, merge_parts, recover_speech_controls, retry_failed_parts, speech_controls, synthesize_parts
 from .config import DEFAULT_KEEP_AWAKE, DEFAULT_PITCH, DEFAULT_PROCESSING_PROFILE, DEFAULT_RATE, DEFAULT_TTS_ENGINE, DEFAULT_VOICE, DEFAULT_VOLUME, default_export_root, load_config, local_work_root, save_config
 from .manifest import load_manifest, save_manifest
 from .history import display_status, format_last_active, list_recent_jobs, list_resumable_jobs, rebuild_history, remove_from_history
@@ -42,8 +42,8 @@ def branding_asset_path(filename: str) -> Path | None:
     if frozen_root:
         roots.append(Path(frozen_root))
     roots.extend([
-        Path(__file__).resolve().parents[2],
         Path(__file__).resolve().parent,
+        Path(__file__).resolve().parents[2],
     ])
     for root in roots:
         candidate = root.joinpath(*BRANDING_DIR_PARTS, filename)
@@ -186,6 +186,7 @@ class App:
         self.pitch = tk.StringVar(value=cfg.get('pitch', DEFAULT_PITCH))
         self.volume = tk.StringVar(value=cfg.get('volume', DEFAULT_VOLUME))
         self.show_all_voices = tk.BooleanVar(value=bool(cfg.get('show_all_voices', False)))
+        self.show_older_attempts = tk.BooleanVar(value=False)
         self.keep_awake = tk.BooleanVar(value=bool(cfg.get('keep_awake', DEFAULT_KEEP_AWAKE)))
         self.recent_by_iid: dict[str, dict] = {}
         self.voice_records = load_voice_cache(self._tts_engine_id())
@@ -197,6 +198,7 @@ class App:
             var.trace_add('write', self._voice_controls_changed)
         self.profile.trace_add('write', self._profile_changed)
         self.show_all_voices.trace_add('write', self._profile_changed)
+        self.show_older_attempts.trace_add('write', lambda *_: self.refresh_recent_jobs())
         self.root.after(100, self._drain)
         self.root.after(250, self._startup_recovery)
         self._refresh_voices(background=True)
@@ -289,7 +291,8 @@ class App:
             button = ttk.Button(recent, text=label, command=method)
             button.grid(row=1, column=col, sticky='w', padx=5, pady=(0, 5))
             self.action_buttons.append(button)
-        add_help(recent, 'Shows the newest interrupted or incomplete attempt for each source book. Older attempts remain in the rebuildable history index but stay hidden here. Removing an entry does not delete files.', row=1, column=4, sticky='w')
+        ttk.Checkbutton(recent, text='Show older attempts…', variable=self.show_older_attempts).grid(row=2, column=0, sticky='w', padx=5, pady=(0, 5))
+        add_help(recent, 'Shows the newest interrupted or incomplete attempt for each source book. Enable Show older attempts only when you intentionally need an earlier checkpoint. Removing an entry does not delete files.', row=1, column=4, sticky='w')
 
         actions = ttk.Frame(frame)
         actions.grid(row=8, column=0, columnspan=5, sticky='ew', pady=8)
@@ -298,7 +301,7 @@ class App:
             ('3. Approve reviewed text & rebuild', self.approve_proofread), ('4. Audition voice', self.audition),
             ('5. Preview Part 1', self.preview), ('6. Approve Part 1', self.approve_part_one),
             ('7. Synthesize all', self.synthesize), ('Retry failed', self.retry_failed),
-            ('8. Merge MP3', self.merge), ('Resume job', self.resume),
+            ('8. Merge MP3', self.merge), ('Load job folder…', self.resume),
         ]
         for index, (text, method) in enumerate(controls):
             button = ttk.Button(actions, text=text, command=method)
@@ -694,7 +697,7 @@ class App:
         self.recent_by_iid.clear()
         for iid in self.recent_jobs.get_children():
             self.recent_jobs.delete(iid)
-        for idx, item in enumerate(list_resumable_jobs()):
+        for idx, item in enumerate(list_resumable_jobs(include_older_attempts=self.show_older_attempts.get())):
             iid = f'recent-{idx}'
             self.recent_by_iid[iid] = item
             progress = f"{item.get('completed_parts', 0)} / {item.get('total_parts', 0)}"
@@ -707,27 +710,89 @@ class App:
             return None
         return self.recent_by_iid.get(selected[0])
 
+    def _resume_from_part(self, next_part: int) -> None:
+        if not self.job:
+            return
+        self._run(
+            f'Resume synthesis from Part {next_part}',
+            lambda: synthesize_parts(
+                self.job,
+                provider_id=self._tts_engine_id(),
+                voice=self.voice.get(),
+                rate=self.rate.get(),
+                pitch=self.pitch.get(),
+                volume=self.volume.get(),
+                start=next_part,
+                progress=self._progress_event,
+                keep_awake=self.keep_awake.get(),
+            ),
+        )
+
+    def _start_guided_voice_check(self, next_part: int) -> None:
+        if not self.job:
+            return
+        job = self.job
+        controls = self._current_speech_controls()
+        def prepared(report: dict) -> None:
+            self._play(Path(report['existing_part_one']))
+            self._play(Path(report['candidate_part_one']))
+            approved = messagebox.askyesno(
+                'Approve voice and resume?',
+                f'Existing audio remains preserved: {len(load_manifest(job).get("audio", {}).get("completed", {}))} parts.\n\n'
+                f'Next part: {next_part}\n\n'
+                'The preserved Part 1 and a candidate Part 1 preview were opened. Listen to both.\n\n'
+                'Do they match closely enough to continue this legacy task with the selected voice controls?',
+            )
+            if not approved:
+                self.status.config(text='Voice check paused. Adjust Voice, Rate, Pitch or Volume, then click Resume selected to compare again. Existing MP3 files remain preserved.')
+                return
+            def rebound(_report: dict) -> None:
+                self.status.config(text=f'Voice approved. Resuming automatically from Part {next_part}.')
+                self._resume_from_part(next_part)
+            self._run(
+                'Approve legacy voice and resume',
+                lambda: approve_legacy_resume_controls(job, **controls),
+                rebound,
+            )
+        self._run(
+            'Generate resume voice check',
+            lambda: generate_resume_voice_check(job, **controls),
+            prepared,
+        )
+
     def resume_selected(self) -> None:
         item = self._selected_recent()
         if not item:
             return
         report = self._load_job(JobPaths.from_root(Path(item['job_root'])))
         if not report or not report.get('next_part') or not self.job:
+            messagebox.showinfo('Resume checkpoint', 'This task has no incomplete Part to resume.')
             return
         status = job_status(self.job)
         next_part = int(report['next_part'])
+        completed = int(status.get('completed_audio_parts') or 0)
+        total = int(status.get('parts') or 0)
         if not status.get('proofread_approved'):
-            messagebox.showinfo('Resume needs reviewed-text approval', f'Task loaded at Part {next_part}. Approve the reviewed text and rebuild parts before resuming.')
-            self.status.config(text=f'Task loaded at Part {next_part}. Reviewed-text approval is required before resume.')
-            return
-        if not report.get('speech_controls_rehydrated') or not status.get('preview_approved') or not self._resume_controls_are_approved(self.job):
             messagebox.showinfo(
-                'Resume needs Part 1 approval',
-                f'Task loaded at Part {next_part}. The original speech controls could not be restored safely. Existing MP3 files remain preserved. Generate and approve Part 1 before resuming.',
+                'Text review required before resume',
+                f'Existing audio preserved: {completed} / {total} parts.\n\nNext part: {next_part}\n\nRequired action:\n1. Open cleaned text.\n2. Approve reviewed text & rebuild.\n3. Click Resume selected again.',
             )
-            self.status.config(text=f'Task loaded at Part {next_part}. Generate and approve Part 1 before resuming synthesis.')
+            self.status.config(text=f'Text review required before resume from Part {next_part}. Existing MP3 files remain preserved.')
             return
-        self._run(f'Resume synthesis from Part {next_part}', lambda: synthesize_parts(self.job, provider_id=self._tts_engine_id(), voice=self.voice.get(), rate=self.rate.get(), pitch=self.pitch.get(), volume=self.volume.get(), start=next_part, progress=self._progress_event, keep_awake=self.keep_awake.get()))
+        if report.get('speech_controls_rehydrated') and status.get('preview_approved') and self._resume_controls_are_approved(self.job):
+            if messagebox.askyesno('Resume ready', f'Existing audio verified: {completed} / {total} parts.\n\nResume now from Part {next_part}?'):
+                self._resume_from_part(next_part)
+            return
+        proceed = messagebox.askyesno(
+            'Voice check required before resume',
+            f'Existing audio preserved: {completed} / {total} parts.\n\nNext part: {next_part}\n\n'
+            'This legacy task does not contain a complete speech-control snapshot.\n\n'
+            'The app will open the preserved Part 1 and generate a candidate Part 1 preview using the currently selected voice controls. After listening, approve or cancel. Existing MP3 files will not be deleted.\n\nStart the guided voice check now?',
+        )
+        if proceed:
+            self._start_guided_voice_check(next_part)
+        else:
+            self.status.config(text=f'Voice check required before resume from Part {next_part}. Existing MP3 files remain preserved.')
 
     def open_selected_output(self) -> None:
         item = self._selected_recent()

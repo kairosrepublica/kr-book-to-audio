@@ -4,7 +4,7 @@ KR Book To Audio is a local, resumable book-to-audiobook pipeline with multiling
 
 It converts text-layer PDF, EPUB, MOBI or PalmDOC-compatible AZW or PRC, DOCX, TXT and Markdown sources into independently recoverable MP3 parts and an optional merged MP3 audiobook.
 
-## Istanbul Release v1.3.3
+## Istanbul Release v1.3.4
 
 This branding-surface checkpoint adds the Owner-approved BA application icon and a restrained bottom footer:
 
@@ -218,3 +218,12 @@ Not supported directly:
 ## License
 
 No open-source license has been granted yet. Copyright remains with the project owner unless a later release states otherwise.
+
+
+## Guided legacy resume
+
+When an older task lacks a complete speech-control snapshot, the desktop does not guess. It preserves completed MP3 files, opens the preserved Part 1 and a candidate Part 1 preview, asks the operator to compare them, and resumes automatically from the first incomplete Part only after explicit approval. Recent jobs collapse older attempts by source hash, normalized source path or ordered part-text aggregate hash. Older attempts remain available through **Show older attempts…**.
+
+## CI release gate
+
+The publisher waits for the GitHub Actions `main` workflow to pass before it creates a tag or GitHub Release. A red remote workflow blocks Release creation.

@@ -115,3 +115,12 @@ Legacy tasks created before v1.3.2 may not contain the raw control tuple. The ap
 The Owner-approved SVG is the canonical BA icon source. The PNG asset is retained as a Tk desktop fallback, and a multi-resolution Windows ICO is generated for title-bar, taskbar, Alt + Tab and future portable-executable reuse.
 
 GUI icon setup is deliberately fail-soft: a missing optional branding asset must not block audiobook work. The bottom footer is a separate layout row below the log and Part-status surfaces so it cannot cover progress or operator controls.
+
+
+## Guided legacy resume state machine
+
+Resume presentation uses explicit states: `resume-ready`, `voice-check-required`, `text-review-required` and `blocked`. For a legacy task without a provable speech-control tuple, the operator compares preserved Part 1 with a candidate Part 1. Explicit approval rebinds the verified preserved MP3 checkpoint records to the selected controls without deleting the files, then synthesis continues from the first incomplete Part.
+
+## Packaging and CI boundary
+
+Branding assets live inside package data and resolve from source trees, installed packages and future frozen bundles. GitHub Actions installs `.[test]`, and Release orchestration waits for a green `main` workflow before tag and Release creation.

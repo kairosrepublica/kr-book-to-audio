@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.4
+
+- declare Pillow in the test extra and package branding assets inside the Python distribution;
+- run GitHub Actions only for `main`, pull requests and manual dispatch;
+- wait for green remote CI before creating a tag or GitHub Release;
+- add explicit resume checkpoint states and guided legacy voice verification;
+- preserve completed legacy MP3 files while the Owner compares preserved and candidate Part 1 previews;
+- collapse older attempts by source hash, normalized source path or ordered part aggregate, with an explicit Show older attempts option.
+
 ## Istanbul Release v1.3.3 - 2026-06-08
 
 Branding surface checkpoint.

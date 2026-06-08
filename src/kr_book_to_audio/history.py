@@ -3,11 +3,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 import json
+import os
 from .config import execution_history_path, local_work_root
 from .models import JobPaths
-from .utils import atomic_write_json
+from .utils import atomic_write_json, sha256_text
 
-HISTORY_SCHEMA_VERSION = 1
+HISTORY_SCHEMA_VERSION = 2
 MAX_RECENT_JOBS = 20
 
 
@@ -50,6 +51,15 @@ def format_last_active(value: str | None) -> str:
 
 
 def display_status(entry: dict[str, Any]) -> str:
+    state = str(entry.get('resume_state') or '')
+    labels = {
+        'resume-ready': 'Resume ready',
+        'voice-check-required': 'Voice check required',
+        'text-review-required': 'Text review required',
+        'blocked': 'Blocked',
+    }
+    if state in labels:
+        return labels[state]
     if entry.get('interrupted'):
         return 'Interrupted · resume'
     if int(entry.get('failed_parts') or 0):
@@ -59,8 +69,35 @@ def display_status(entry: dict[str, Any]) -> str:
     if total and completed >= total:
         return 'Completed'
     if total:
-        return 'Ready to resume'
+        return 'Resume available'
     return 'Needs preparation'
+
+
+def _parts_aggregate(manifest: dict[str, Any]) -> str:
+    records = manifest.get('parts', [])
+    hashes = [str(item.get('sha256') or '') for item in records if isinstance(item, dict)]
+    return sha256_text('|'.join(hashes)) if hashes and all(hashes) else ''
+
+
+def _resume_state_from_manifest(manifest: dict[str, Any]) -> str:
+    parts = manifest.get('parts', [])
+    audio = manifest.get('audio', {})
+    completed = audio.get('completed', {})
+    if not parts:
+        return 'blocked'
+    if len(completed) >= len(parts):
+        return 'completed'
+    proofread = manifest.get('gates', {}).get('proofread', {})
+    if not proofread.get('approved_sha256'):
+        return 'text-review-required'
+    signature = audio.get('signature')
+    controls = audio.get('controls')
+    preview = manifest.get('gates', {}).get('preview', {})
+    first_sha = parts[0].get('sha256') if parts else None
+    has_controls = isinstance(controls, dict) and all(isinstance(controls.get(key), str) for key in ('provider_id', 'voice', 'rate', 'pitch', 'volume'))
+    if signature and has_controls and preview.get('approved_audio_signature') == signature and preview.get('approved_part_sha256') == first_sha:
+        return 'resume-ready'
+    return 'voice-check-required'
 
 
 def _normalize_entry(entry: dict[str, Any]) -> dict[str, Any]:
@@ -70,6 +107,8 @@ def _normalize_entry(entry: dict[str, Any]) -> dict[str, Any]:
         'job_root': str(entry.get('job_root') or ''),
         'export_root': str(entry.get('export_root') or ''),
         'source_sha256': str(entry.get('source_sha256') or ''),
+        'source_path_runtime_only': str(entry.get('source_path_runtime_only') or ''),
+        'parts_aggregate_sha256': str(entry.get('parts_aggregate_sha256') or ''),
         'created_utc': str(entry.get('created_utc') or ''),
         'updated_utc': str(entry.get('updated_utc') or _utc_now()),
         'last_operation': entry.get('last_operation'),
@@ -79,6 +118,7 @@ def _normalize_entry(entry: dict[str, Any]) -> dict[str, Any]:
         'completed_parts': int(entry.get('completed_parts') or 0),
         'failed_parts': int(entry.get('failed_parts') or 0),
         'status': str(entry.get('status') or 'idle'),
+        'resume_state': str(entry.get('resume_state') or ''),
         'interrupted': bool(entry.get('interrupted', False)),
         'resumable': bool(entry.get('resumable', False)),
         'hidden': bool(entry.get('hidden', False)),
@@ -126,6 +166,8 @@ def history_entry_from_manifest(job: JobPaths, manifest: dict[str, Any]) -> dict
         'job_root': str(job.root),
         'export_root': str(job.export),
         'source_sha256': str(manifest.get('source', {}).get('sha256') or ''),
+        'source_path_runtime_only': str(manifest.get('source', {}).get('path_runtime_only') or ''),
+        'parts_aggregate_sha256': _parts_aggregate(manifest),
         'created_utc': manifest.get('created_utc'),
         'updated_utc': manifest.get('updated_utc') or _utc_now(),
         'last_operation': execution.get('last_operation'),
@@ -135,6 +177,7 @@ def history_entry_from_manifest(job: JobPaths, manifest: dict[str, Any]) -> dict
         'completed_parts': completed,
         'failed_parts': len(audio.get('failures', {})),
         'status': status,
+        'resume_state': _resume_state_from_manifest(manifest),
         'interrupted': interrupted,
         'resumable': bool(total and completed < total) or interrupted or bool(audio.get('failures')),
     })
@@ -178,6 +221,24 @@ def list_recent_jobs(path: Path | None = None, *, include_hidden: bool = False) 
     return sorted(jobs, key=lambda item: item.get('updated_utc') or '', reverse=True)
 
 
+def _normalized_source_path(raw: str) -> str:
+    value = str(raw or '').strip()
+    return os.path.normcase(os.path.normpath(value)) if value else ''
+
+
+def source_identity_key(entry: dict[str, Any]) -> str:
+    source_sha256 = str(entry.get('source_sha256') or '').strip()
+    if source_sha256:
+        return f'sha256:{source_sha256}'
+    source_path = _normalized_source_path(str(entry.get('source_path_runtime_only') or ''))
+    if source_path:
+        return f'path:{source_path}'
+    aggregate = str(entry.get('parts_aggregate_sha256') or '').strip()
+    if aggregate:
+        return f'parts:{aggregate}'
+    return f'job:{entry.get("job_id")}'
+
+
 def list_resumable_jobs(path: Path | None = None, *, include_older_attempts: bool = False) -> list[dict[str, Any]]:
     candidates = [
         item for item in list_recent_jobs(path)
@@ -188,8 +249,7 @@ def list_resumable_jobs(path: Path | None = None, *, include_older_attempts: boo
     newest: list[dict[str, Any]] = []
     seen_sources: set[str] = set()
     for item in candidates:
-        source_sha256 = str(item.get('source_sha256') or '').strip()
-        key = f'sha256:{source_sha256}' if source_sha256 else f'job:{item.get("job_id")}'
+        key = source_identity_key(item)
         if key in seen_sources:
             continue
         seen_sources.add(key)
