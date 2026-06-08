@@ -3,7 +3,6 @@ from pathlib import Path
 from typing import Callable
 import asyncio
 import os
-import subprocess
 import tempfile
 import time
 from .manifest import load_manifest, save_manifest
@@ -12,6 +11,7 @@ from .power import keep_computer_awake
 from .providers import get_tts_provider
 from .models import JobPaths
 from .state import approve_preview_state, assert_preview_approved, assert_proofread_approved, reset_audio_state
+from .subprocess_utils import run_hidden_cli
 from .utils import append_job_log, atomic_write_json, clear_files, job_operation_lock, require_command, sha256_file, sha256_text
 
 ProgressCallback = Callable[[dict], None]
@@ -149,7 +149,7 @@ def validate_mp3(path: Path, *, ffprobe: str = 'ffprobe') -> dict:
     if not path.exists() or path.stat().st_size <= 1024:
         raise RuntimeError(f'MP3 missing or too small: {path.name}')
     require_command(ffprobe, 'install FFmpeg')
-    result = subprocess.run(
+    result = run_hidden_cli(
         [ffprobe, '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', str(path)],
         capture_output=True, text=True, check=False,
     )
@@ -483,7 +483,7 @@ def merge_parts(job: JobPaths, *, output_name: str | None = None, validator: Cal
         partial = output.with_name(output.stem + '.partial' + output.suffix)
         partial.unlink(missing_ok=True)
         try:
-            subprocess.run([ffmpeg, '-hide_banner', '-loglevel', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', str(concat_list), '-c', 'copy', str(partial)], check=True)
+            run_hidden_cli([ffmpeg, '-hide_banner', '-loglevel', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', str(concat_list), '-c', 'copy', str(partial)], check=True)
             merged_metadata = validate_mp3(partial)
             os.replace(partial, output)
         except Exception as exc:

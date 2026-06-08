@@ -103,5 +103,6 @@ class PortableContractTests(unittest.TestCase):
         self.assertIn('Built by Kent Reis from Constantinople with love. AD May 20, 2026', readme)
         self.assertIn('Copyright © Kent Reis & Kairos República', readme)
         self.assertTrue((ROOT/'docs/images/kr_book_to_audio_gui_istanbul_release_2_0.png').exists())
+        self.assertTrue((ROOT/'docs/images/kr_book_to_audio_gui_istanbul_release_v2_0_1.png').exists())
 
 if __name__=='__main__': unittest.main()

@@ -27,14 +27,14 @@ class PdfDiagnoseTests(unittest.TestCase):
         raise AssertionError(args)
 
     def test_pdf_fonts_and_usable_sample_are_required(self):
-        with tempfile.TemporaryDirectory() as td, patch('kr_book_to_audio.extractors.require_command'), patch('kr_book_to_audio.extractors.subprocess.run', side_effect=self._run):
+        with tempfile.TemporaryDirectory() as td, patch('kr_book_to_audio.extractors.require_command'), patch('kr_book_to_audio.extractors.run_hidden_cli', side_effect=self._run):
             report = diagnose(Path(td) / 'book.pdf')
             self.assertTrue(report['extractable'])
             self.assertEqual(report['sample_pages'], [1, 5, 9])
             self.assertGreater(report['sample_cjk_chars'], 20)
 
     def test_pdf_fonts_without_usable_sample_are_rejected(self):
-        with tempfile.TemporaryDirectory() as td, patch('kr_book_to_audio.extractors.require_command'), patch('kr_book_to_audio.extractors.subprocess.run', side_effect=self._empty_run):
+        with tempfile.TemporaryDirectory() as td, patch('kr_book_to_audio.extractors.require_command'), patch('kr_book_to_audio.extractors.run_hidden_cli', side_effect=self._empty_run):
             report = diagnose(Path(td) / 'book.pdf')
             self.assertFalse(report['extractable'])
             self.assertTrue(report['needs_ocr'])

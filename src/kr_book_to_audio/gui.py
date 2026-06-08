@@ -20,6 +20,8 @@ from .models import JobPaths
 from .ocr import OCRAnalysis, analyze_source, preview_sample_ocr, run_recommended_ocr
 from .pipeline import approve_proofread_and_rebuild, apply_cleanup_and_rebuild, job_status, prepare_job
 from .providers import OCR_PROVIDER_SPECS, enabled_tts_specs
+from .subprocess_utils import process_trace
+from .workflow_state import derive_workflow_state
 from .voices import filter_voices, load_voice_cache, refresh_voice_cache
 
 PROFILE_LABELS = {
@@ -183,7 +185,10 @@ class App:
         self.events: queue.Queue[tuple] = queue.Queue()
         self.job: JobPaths | None = None
         self.busy = BusyGuard()
-        self.action_buttons: list[ttk.Button] = []
+        self.action_buttons: list[tk.Widget] = []
+        self.workflow_buttons: dict[str, tk.Button] = {}
+        self.workflow_base_labels: dict[str, str] = {}
+        self.ui_actions_enabled = True
         self.part_states: dict[int, str] = {}
         self.current_index: int | None = None
         self.current_estimate = 0
@@ -244,8 +249,21 @@ class App:
             add_help(frame, tip, row=row, column=5, padx=(4, 0), sticky='w')
         frame.columnconfigure(1, weight=1)
 
-        opts = ttk.Labelframe(frame, text='Text and speech')
-        opts.grid(row=4, column=0, columnspan=6, sticky='ew', pady=(8, 4))
+        recent = ttk.Labelframe(frame, text='Resume interrupted or incomplete jobs')
+        recent.grid(row=4, column=0, columnspan=6, sticky='ew', pady=(8, 4))
+        self.recent_jobs = ttk.Treeview(recent, columns=('title', 'status', 'progress', 'last_active'), show='headings', height=3)
+        self.recent_jobs.heading('title', text='Book title'); self.recent_jobs.heading('status', text='Status'); self.recent_jobs.heading('progress', text='Progress'); self.recent_jobs.heading('last_active', text='Last active')
+        self.recent_jobs.column('title', width=360, anchor='w'); self.recent_jobs.column('status', width=160, anchor='w'); self.recent_jobs.column('progress', width=120, anchor='center'); self.recent_jobs.column('last_active', width=220, anchor='w')
+        self.recent_jobs.grid(row=0, column=0, columnspan=6, sticky='ew', padx=5, pady=5)
+        for col, (label, method) in enumerate([('Resume selected', self.resume_selected), ('Open output folder', self.open_selected_output), ('Remove from history', self.remove_selected_history), ('Refresh', self.refresh_recent_jobs), ('Advanced recovery…', self.advanced_recovery)]):
+            button = ttk.Button(recent, text=label, command=method)
+            button.grid(row=1, column=col, sticky='w', padx=5, pady=(0, 5))
+            self.action_buttons.append(button)
+        ttk.Checkbutton(recent, text='Show older attempts…', variable=self.show_older_attempts).grid(row=2, column=0, sticky='w', padx=5, pady=(0, 5))
+        add_help(recent, 'Shows resumable tasks. Advanced recovery is only for a task missing from this list; it manually loads a known job folder.', row=1, column=5, sticky='w')
+
+        opts = ttk.Labelframe(frame, text='Text and speech settings')
+        opts.grid(row=5, column=0, columnspan=6, sticky='ew', pady=(4, 4))
         ttk.Label(opts, text='Processing profile').grid(row=0, column=0, sticky='w', padx=(6, 3), pady=4)
         ttk.Combobox(opts, textvariable=self.profile, values=list(PROFILE_LABELS), state='readonly', width=28).grid(row=0, column=1, sticky='w', padx=3)
         add_help(opts, 'Controls cleanup and chunking rules. Auto detect is recommended. You can override it before Prepare text.', row=0, column=2, sticky='w', padx=(0, 14))
@@ -265,8 +283,8 @@ class App:
         ttk.Label(opts, text='Volume').grid(row=2, column=4, sticky='e', padx=3)
         ttk.Entry(opts, textvariable=self.volume, width=10).grid(row=2, column=5, sticky='w', padx=3)
 
-        ocr = ttk.Labelframe(frame, text='OCR analysis')
-        ocr.grid(row=5, column=0, columnspan=6, sticky='ew', pady=(4, 4))
+        ocr = ttk.Labelframe(frame, text='OCR')
+        ocr.grid(row=6, column=0, columnspan=6, sticky='ew', pady=(4, 4))
         self.ocr_status = ttk.Label(ocr, text='Status: Not analyzed')
         self.ocr_status.grid(row=0, column=0, columnspan=4, sticky='w', padx=6, pady=(4, 2))
         self.ocr_reason = ttk.Label(ocr, text='Select a book, then analyze OCR requirements.', wraplength=980)
@@ -280,58 +298,44 @@ class App:
             btn = ttk.Button(ocr, text=label, command=method)
             btn.grid(row=2, column=col, sticky='w', padx=6, pady=(0, 5))
             self.action_buttons.append(btn)
-        add_help(ocr, 'The advisor decides whether OCR is applicable or needed, discovers local engines, recommends a local provider and keeps cloud API slots disabled until explicitly configured in a future release.', row=2, column=4, sticky='w')
+        add_help(ocr, 'The advisor decides whether OCR is applicable or needed, discovers local engines and recommends a provider.', row=2, column=4, sticky='w')
         self.ocr_advanced = ttk.Frame(ocr)
         ttk.Label(self.ocr_advanced, text='OCR engine override').pack(side='left', padx=(6, 3))
         self.ocr_override_combo = ttk.Combobox(self.ocr_advanced, textvariable=self.ocr_override, state='readonly', width=46)
         self.ocr_override_combo.pack(side='left', padx=3)
 
-        cleanup = ttk.Labelframe(frame, text='Optional cleanup analysis')
-        cleanup.grid(row=6, column=0, columnspan=6, sticky='ew', pady=(4, 5))
+        text_process = ttk.Labelframe(frame, text='Text process')
+        text_process.grid(row=7, column=0, columnspan=6, sticky='ew', pady=(4, 5))
+        self._workflow_button(text_process, 'prepare', '1. Prepare text', self.prepare, row=0, column=0)
+        cleanup = ttk.Labelframe(text_process, text='2. Optional cleanup analysis')
+        cleanup.grid(row=1, column=0, columnspan=4, sticky='ew', padx=5, pady=5)
         self.cleanup_junk = ttk.Label(cleanup, text='Repeated headers and junk: Not analyzed')
         self.cleanup_junk.grid(row=0, column=0, sticky='w', padx=6, pady=3)
         btn = ttk.Button(cleanup, text='Apply repeated-header cleanup', command=lambda: self.apply_cleanup('repeated-headers-and-junk'))
-        btn.grid(row=0, column=1, sticky='w', padx=4)
-        self.action_buttons.append(btn)
+        btn.grid(row=0, column=1, sticky='w', padx=4); self.action_buttons.append(btn)
         add_help(cleanup, 'Removes only high-confidence repeated headers, footers, URLs and promotional lines. A backup is created first.', row=0, column=2, sticky='w')
         self.cleanup_datetime = ttk.Label(cleanup, text='Metadata-like date/time tags: Not analyzed')
         self.cleanup_datetime.grid(row=1, column=0, sticky='w', padx=6, pady=3)
         btn = ttk.Button(cleanup, text='Apply date/time cleanup', command=lambda: self.apply_cleanup('metadata-date-time-tags'))
-        btn.grid(row=1, column=1, sticky='w', padx=4)
-        self.action_buttons.append(btn)
+        btn.grid(row=1, column=1, sticky='w', padx=4); self.action_buttons.append(btn)
         add_help(cleanup, 'Removes standalone metadata-style timestamps. Ordinary dates and times inside prose are preserved. A backup is created first.', row=1, column=2, sticky='w')
-        btn = ttk.Button(cleanup, text='Apply all recommended cleanup', command=self.apply_all_cleanup)
-        btn.grid(row=2, column=1, sticky='w', padx=4, pady=(2, 5))
-        self.action_buttons.append(btn)
+        self._workflow_button(cleanup, 'cleanup_all', 'Apply all recommended cleanup', self.apply_all_cleanup, row=2, column=1)
+        self._workflow_button(text_process, 'open_cleaned', '3. Open cleaned text', self.open_proofread, row=2, column=0)
+        self._workflow_button(text_process, 'approve_text', '4. Approve reviewed text & rebuild', self.approve_proofread, row=2, column=1)
+        for column in range(4): text_process.columnconfigure(column, weight=1)
 
-        recent = ttk.Labelframe(frame, text='Resume interrupted or incomplete jobs')
-        recent.grid(row=7, column=0, columnspan=6, sticky='ew', pady=(4, 5))
-        self.recent_jobs = ttk.Treeview(recent, columns=('title', 'status', 'progress', 'last_active'), show='headings', height=4)
-        self.recent_jobs.heading('title', text='Book title'); self.recent_jobs.heading('status', text='Status'); self.recent_jobs.heading('progress', text='Progress'); self.recent_jobs.heading('last_active', text='Last active')
-        self.recent_jobs.column('title', width=360, anchor='w'); self.recent_jobs.column('status', width=150, anchor='w'); self.recent_jobs.column('progress', width=120, anchor='center'); self.recent_jobs.column('last_active', width=220, anchor='w')
-        self.recent_jobs.grid(row=0, column=0, columnspan=5, sticky='ew', padx=5, pady=5)
-        for col, (label, method) in enumerate([('Resume selected', self.resume_selected), ('Open output folder', self.open_selected_output), ('Remove from history', self.remove_selected_history), ('Refresh', self.refresh_recent_jobs)]):
-            button = ttk.Button(recent, text=label, command=method)
-            button.grid(row=1, column=col, sticky='w', padx=5, pady=(0, 5))
-            self.action_buttons.append(button)
-        ttk.Checkbutton(recent, text='Show older attempts…', variable=self.show_older_attempts).grid(row=2, column=0, sticky='w', padx=5, pady=(0, 5))
-        add_help(recent, 'Shows the newest interrupted or incomplete attempt for each source book. Enable Show older attempts only when you intentionally need an earlier checkpoint. Removing an entry does not delete files.', row=1, column=4, sticky='w')
-
-        actions = ttk.Frame(frame)
-        actions.grid(row=8, column=0, columnspan=6, sticky='ew', pady=8)
-        controls = [
-            ('1. Prepare text', self.prepare), ('2. Open cleaned text', self.open_proofread),
-            ('3. Approve reviewed text & rebuild', self.approve_proofread), ('4. Audition voice', self.audition),
-            ('5. Preview Part 1', self.preview), ('6. Approve Part 1', self.approve_part_one),
-            ('7. Synthesize all', self.synthesize), ('Retry failed', self.retry_failed),
-            ('8. Merge MP3', self.merge), ('9. Verify export', self.verify_export_action),
-            ('Load job folder…', self.resume),
-        ]
-        for index, (text, method) in enumerate(controls):
-            button = ttk.Button(actions, text=text, command=method)
-            button.grid(row=index // 4, column=index % 4, sticky='ew', padx=3, pady=3)
-            self.action_buttons.append(button)
-        for column in range(4): actions.columnconfigure(column, weight=1)
+        audio_process = ttk.Labelframe(frame, text='Audio process')
+        audio_process.grid(row=8, column=0, columnspan=6, sticky='ew', pady=(4, 5))
+        self._workflow_button(audio_process, 'audition', '5. Audition voice', self.audition, row=0, column=0)
+        self._workflow_button(audio_process, 'preview', '6. Preview Part 1', self.preview, row=0, column=1)
+        self._workflow_button(audio_process, 'approve_preview', '7. Approve Part 1', self.approve_part_one, row=0, column=2)
+        self._workflow_button(audio_process, 'synthesize', '8. Synthesize all', self.synthesize, row=1, column=0)
+        self._workflow_button(audio_process, 'retry_failed', 'Retry failed', self.retry_failed, row=1, column=1)
+        self._workflow_button(audio_process, 'merge', '9. Merge MP3', self.merge, row=1, column=2)
+        self._workflow_button(audio_process, 'open_export', 'Open final export folder', self.open_current_export, row=2, column=0)
+        self.export_status = ttk.Label(audio_process, text='Final export is automatic and mandatory after synthesis.')
+        self.export_status.grid(row=2, column=1, columnspan=3, sticky='w', padx=6)
+        for column in range(4): audio_process.columnconfigure(column, weight=1)
 
         runtime = ttk.Labelframe(frame, text='Long-running operations')
         runtime.grid(row=9, column=0, columnspan=6, sticky='ew', pady=(0, 5))
@@ -351,9 +355,9 @@ class App:
         log_frame = ttk.Labelframe(body, text='Run log')
         parts_frame = ttk.Labelframe(body, text='Part status')
         body.add(log_frame, weight=3); body.add(parts_frame, weight=2)
-        self.log = tk.Text(log_frame, height=26, wrap='word')
+        self.log = tk.Text(log_frame, height=20, wrap='word')
         self.log.pack(fill='both', expand=True)
-        self.parts = ttk.Treeview(parts_frame, columns=('part', 'state'), show='headings', height=19)
+        self.parts = ttk.Treeview(parts_frame, columns=('part', 'state'), show='headings', height=17)
         self.parts.heading('part', text='Part'); self.parts.heading('state', text='State')
         self.parts.column('part', width=80, anchor='center'); self.parts.column('state', width=210, anchor='w')
         self.parts.tag_configure('running', background='#d9f2d9', foreground='#006400')
@@ -372,6 +376,14 @@ class App:
         footer.grid(row=15, column=0, columnspan=6, sticky='ew', pady=(0, 2))
         ttk.Label(footer, text='COPYRIGHT © KENT REIS & KAIROS REPÚBLICA').pack(side='left')
         ttk.Label(footer, text='BUILT IN CONSTANTINOPLE WITH LOVE').pack(side='right')
+        self._render_workflow_state()
+
+    def _workflow_button(self, parent: tk.Widget, key: str, text: str, command, *, row: int, column: int) -> tk.Button:
+        button = tk.Button(parent, text=text, command=command, relief='raised', padx=7, pady=3)
+        button.grid(row=row, column=column, sticky='ew', padx=5, pady=4)
+        self.workflow_buttons[key] = button
+        self.workflow_base_labels[key] = text
+        return button
 
     def _tts_engine_id(self) -> str:
         return self.tts_engine_labels.get(self.tts_engine.get(), DEFAULT_TTS_ENGINE)
@@ -431,8 +443,12 @@ class App:
         value = filedialog.askopenfilename(initialdir=initial, filetypes=[('Books', '*.pdf *.epub *.mobi *.azw *.prc *.docx *.txt *.md'), ('All files', '*.*')])
         if value:
             self.source.set(value)
+            self.job = None
+            if hasattr(self, 'parts'):
+                self._reset_part_view()
             self.ocr_analysis = None
             self.ocr_status.config(text='Status: Not analyzed')
+            self._render_workflow_state()
 
     def _browse_work(self) -> None:
         value = filedialog.askdirectory(initialdir=self.work_root.get() or str(local_work_root()))
@@ -498,6 +514,7 @@ class App:
 
     def _voice_controls_changed(self, *_: object) -> None:
         if self.job: self.status.config(text='Speech settings changed. Generate and approve Part 1 again before full synthesis.')
+        self._render_workflow_state()
 
     def _profile_changed(self, *_: object) -> None:
         self._apply_voice_filter()
@@ -522,8 +539,14 @@ class App:
             self._run('Refresh voices', work, done)
 
     def _set_actions_enabled(self, enabled: bool) -> None:
+        self.ui_actions_enabled = enabled
         state = 'normal' if enabled else 'disabled'
-        for button in self.action_buttons: button.config(state=state)
+        for button in self.action_buttons:
+            button.config(state=state)
+        self._render_workflow_state()
+
+    def _process_trace_event(self, payload: dict[str, object]) -> None:
+        self.events.put(('process', 'External process', payload, None))
 
     def _run(self, label: str, fn, on_success=None) -> None:
         if not self.busy.start(label):
@@ -531,8 +554,12 @@ class App:
         self._set_actions_enabled(False); self.status.config(text=label)
         self._log_event(f'Started: {label}')
         def worker() -> None:
-            try: self.events.put(('ok', label, fn(), on_success))
-            except Exception as exc: self.events.put(('error', label, f'{type(exc).__name__}: {exc}', None))
+            try:
+                with process_trace(self._process_trace_event, operation=label):
+                    result = fn()
+                self.events.put(('ok', label, result, on_success))
+            except Exception as exc:
+                self.events.put(('error', label, f'{type(exc).__name__}: {exc}', None))
         threading.Thread(target=worker, daemon=True).start()
 
     def _progress_event(self, payload: dict) -> None:
@@ -543,6 +570,9 @@ class App:
             while True:
                 kind, label, payload, callback = self.events.get_nowait()
                 if kind == 'progress': self._update_part_progress(payload); continue
+                if kind == 'process':
+                    self._handle_process_trace(payload)
+                    continue
                 if kind == 'silent-ok':
                     if callback: callback(payload)
                     continue
@@ -559,8 +589,37 @@ class App:
                     self._log_event(f'Completed: {label}')
                     if callback: callback(payload)
                     self._refresh_job_view()
+                self._render_workflow_state()
         except queue.Empty: pass
         self.root.after(100, self._drain)
+
+    def _handle_process_trace(self, payload: dict[str, object]) -> None:
+        phase = str(payload.get('phase') or '')
+        tool = str(payload.get('tool') or 'unknown')
+        if phase == 'start':
+            self._log_event(f'External tool: {tool} · hidden-window launch')
+        elif phase == 'error':
+            self._log_event(f'External tool failed: {tool} · {payload.get("error")}')
+
+    def _render_workflow_state(self) -> None:
+        if not hasattr(self, 'workflow_buttons'):
+            return
+        states = derive_workflow_state(self.job, source_selected=bool(self.source.get().strip()), running_label=self.busy.label)
+        palette = {
+            'completed': {'bg': '#e6e6e6', 'fg': '#666666', 'state': 'disabled', 'prefix': '✓ '},
+            'running': {'bg': '#f4a261', 'fg': '#000000', 'state': 'disabled', 'prefix': 'RUNNING · '},
+            'next': {'bg': '#fff3cd', 'fg': '#000000', 'state': 'normal', 'prefix': 'NEXT · '},
+            'optional': {'bg': '#f8f9fa', 'fg': '#000000', 'state': 'normal', 'prefix': 'Optional · '},
+            'failed': {'bg': '#f8d7da', 'fg': '#8b0000', 'state': 'normal', 'prefix': 'FAILED · '},
+            'blocked': {'bg': '#efefef', 'fg': '#999999', 'state': 'disabled', 'prefix': ''},
+        }
+        for key, button in self.workflow_buttons.items():
+            action = states.get(key)
+            state_name = action.state if action else 'blocked'
+            style = palette[state_name]
+            enabled_state = style['state'] if self.ui_actions_enabled else 'disabled'
+            font = ('TkDefaultFont', 9, 'bold') if state_name in {'running', 'next', 'failed'} else ('TkDefaultFont', 9)
+            button.config(text=style['prefix'] + self.workflow_base_labels[key], bg=style['bg'], fg=style['fg'], state=enabled_state, font=font, disabledforeground=style['fg'])
 
     def _log_event(self, text: str) -> None:
         stamp = datetime.now().strftime('%H:%M:%S')
@@ -592,6 +651,10 @@ class App:
         pct = (completed / total * 100) if total else 0
         self.overall_progress['value'] = pct; self.overall_label.config(text=f'{completed} / {total} parts completed · {pct:.0f}%')
         self._render_cleanup(status.get('cleanup_analysis', {}))
+        if hasattr(self, 'export_status'):
+            export_state = status.get('export', {}).get('status', 'not-finalized')
+            self.export_status.config(text=f'Final export: {export_state}. Export finalization and verification are automatic.')
+        self._render_workflow_state()
 
     def _set_part_state(self, index: int, state: str, *, highlight: str | None = None) -> None:
         self.part_states[index] = state
@@ -875,12 +938,44 @@ class App:
         if report.get('interrupted') or report.get('stale_lock_removed'):
             self.status.config(text=f'Interrupted task recovered. Resume from Part {next_part or "complete"}.')
         report['speech_controls_rehydrated'] = controls_rehydrated
+        if self._job_audio_complete(job) and not export_is_verified(job):
+            self.root.after(20, lambda current=job: self._schedule_legacy_export_repair(current))
+        self._render_workflow_state()
         return report
 
-    def resume(self) -> None:
-        value=filedialog.askdirectory(title='Select an existing job folder', initialdir=self.work_root.get() or str(local_work_root()))
+    def advanced_recovery(self) -> None:
+        proceed = messagebox.askyesno(
+            'Advanced recovery',
+            'Use this only when a task is missing from Recent jobs. Recover a known job folder manually?',
+        )
+        if not proceed:
+            return
+        value = filedialog.askdirectory(title='Recover job from folder', initialdir=self.work_root.get() or str(local_work_root()))
         if value:
             self._load_job(JobPaths.from_root(Path(value)))
+
+    def _job_audio_complete(self, job: JobPaths) -> bool:
+        try:
+            manifest = load_manifest(job)
+        except (FileNotFoundError, RuntimeError, ValueError):
+            return False
+        expected = len(manifest.get('parts', []))
+        completed = len(manifest.get('audio', {}).get('completed', {}))
+        failures = bool(manifest.get('audio', {}).get('failures'))
+        return bool(expected and completed == expected and not failures)
+
+    def _schedule_legacy_export_repair(self, job: JobPaths, *, open_after: bool = False) -> None:
+        if export_is_verified(job):
+            if open_after:
+                open_in_file_manager(job.export)
+            return
+        if not self._job_audio_complete(job):
+            return
+        def done(_report: dict) -> None:
+            self._log_event('Legacy export repaired automatically and verified.')
+            if open_after:
+                open_in_file_manager(job.export)
+        self._run('Automatic legacy export finalization', lambda: finalize_export(job, progress=self._progress_event), done)
 
     def refresh_recent_jobs(self) -> None:
         rebuild_history(Path(self.work_root.get() or local_work_root()))
@@ -987,11 +1082,7 @@ class App:
         else:
             self.status.config(text=f'Voice check required before resume from Part {next_part}. Existing MP3 files remain preserved.')
 
-    def open_selected_output(self) -> None:
-        item = self._selected_recent()
-        if not item:
-            return
-        job = JobPaths.from_root(Path(item['job_root']))
+    def _open_job_export_or_repair(self, job: JobPaths) -> None:
         if export_is_verified(job) and job.export.exists():
             try:
                 open_in_file_manager(job.export)
@@ -999,9 +1090,14 @@ class App:
             except RuntimeError as exc:
                 messagebox.showerror('Open output folder', str(exc))
             return
+        if self._job_audio_complete(job):
+            self.job = job
+            self._log_event('Legacy completed task detected. Finalizing export automatically before opening the folder.')
+            self._schedule_legacy_export_repair(job, open_after=True)
+            return
         proceed = messagebox.askyesno(
             'Final export not ready',
-            'Final export has not been created yet. Open the working audio folder instead?',
+            'Final export has not been created because the task is incomplete. Open the working audio folder instead?',
         )
         if proceed:
             try:
@@ -1009,6 +1105,16 @@ class App:
                 self._log_event(f'Opened working audio folder: {job.parts_audio}')
             except RuntimeError as exc:
                 messagebox.showerror('Open output folder', str(exc))
+
+    def open_selected_output(self) -> None:
+        item = self._selected_recent()
+        if item:
+            self._open_job_export_or_repair(JobPaths.from_root(Path(item['job_root'])))
+
+    def open_current_export(self) -> None:
+        job = self._job_required()
+        if job:
+            self._open_job_export_or_repair(job)
 
     def remove_selected_history(self) -> None:
         item = self._selected_recent()

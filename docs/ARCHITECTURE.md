@@ -161,3 +161,11 @@ export_is_verified(job)
 ```
 
 `Synthesize all` and successful `Retry failed` completion call `finalize_export`. `Merge MP3` refreshes the export tree and requires merged-file verification. Internal checkpoint MP3 files remain preserved for durable resume.
+
+## Istanbul Release v2.1.0 — governed child-process and workflow presentation layer
+
+`src/kr_book_to_audio/subprocess_utils.py` is the single governed launch surface for console-style external tools. On Windows it applies `CREATE_NO_WINDOW`, `STARTF_USESHOWWINDOW` and `SW_HIDE`. Linux and macOS retain normal subprocess behavior. Explicit user-facing Explorer, file-open and audio-play actions remain visible and separate.
+
+`src/kr_book_to_audio/workflow_state.py` derives button presentation from the authoritative job manifest rather than click history. The GUI renders completed, running, next, optional, blocked and failed actions.
+
+The primary screen no longer exposes manual export verification or raw job-folder loading. Export finalization is mandatory and automatic. Disaster recovery by folder remains available only under Advanced recovery.

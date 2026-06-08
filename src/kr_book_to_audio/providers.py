@@ -7,9 +7,9 @@ import importlib.util
 import json
 import os
 import shutil
-import subprocess
 import sys
 import tempfile
+from .subprocess_utils import run_hidden_cli
 
 
 @dataclass(frozen=True)
@@ -209,11 +209,11 @@ class PaddleOCRProvider(OCRProvider):
             images = []
             for page in pages_to_run:
                 prefix = output_dir / f'page-{int(page):04d}'
-                subprocess.run(['pdftoppm', '-f', str(page), '-l', str(page), '-singlefile', '-png', '-r', '250', str(source), str(prefix)], check=True, capture_output=True)
+                run_hidden_cli(['pdftoppm', '-f', str(page), '-l', str(page), '-singlefile', '-png', '-r', '250', str(source), str(prefix)], check=True, capture_output=True)
                 images.append(prefix.with_suffix('.png'))
         else:
             prefix = output_dir / 'page'
-            subprocess.run(['pdftoppm', '-png', '-r', '250', str(source), str(prefix)], check=True, capture_output=True)
+            run_hidden_cli(['pdftoppm', '-png', '-r', '250', str(source), str(prefix)], check=True, capture_output=True)
             images = sorted(output_dir.glob('page-*.png'))
         return '\f'.join(self._recognize_image(image, language) for image in images)
 
@@ -236,7 +236,7 @@ class TesseractOCRProvider(OCRProvider):
     def installed_languages(self) -> set[str]:
         if not shutil.which('tesseract'):
             return set()
-        result = subprocess.run(['tesseract', '--list-langs'], capture_output=True, text=True, check=False)
+        result = run_hidden_cli(['tesseract', '--list-langs'], capture_output=True, text=True, check=False)
         return {line.strip() for line in result.stdout.splitlines()[1:] if line.strip()}
 
     def recognize_pdf_to_text(self, source: Path, *, language: str, output_dir: Path, pages: Iterable[int] | None = None) -> str:
@@ -254,15 +254,15 @@ class TesseractOCRProvider(OCRProvider):
             images = []
             for page in pages_to_run:
                 prefix = output_dir / f'page-{int(page):04d}'
-                subprocess.run(['pdftoppm', '-f', str(page), '-l', str(page), '-singlefile', '-png', '-r', '250', str(source), str(prefix)], check=True, capture_output=True)
+                run_hidden_cli(['pdftoppm', '-f', str(page), '-l', str(page), '-singlefile', '-png', '-r', '250', str(source), str(prefix)], check=True, capture_output=True)
                 images.append(prefix.with_suffix('.png'))
         else:
             prefix = output_dir / 'page'
-            subprocess.run(['pdftoppm', '-png', '-r', '250', str(source), str(prefix)], check=True, capture_output=True)
+            run_hidden_cli(['pdftoppm', '-png', '-r', '250', str(source), str(prefix)], check=True, capture_output=True)
             images = sorted(output_dir.glob('page-*.png'))
         out = []
         for image in images:
-            result = subprocess.run(['tesseract', str(image), 'stdout', '-l', languages], capture_output=True, check=False)
+            result = run_hidden_cli(['tesseract', str(image), 'stdout', '-l', languages], capture_output=True, check=False)
             if result.returncode != 0:
                 raise RuntimeError(result.stderr.decode('utf-8', 'replace'))
             out.append(result.stdout.decode('utf-8', 'replace'))
@@ -289,7 +289,7 @@ class OCRmyPDFProvider(OCRProvider):
             raise ProviderUnavailable(reason)
         langs = {'chinese': 'chi_sim+eng', 'english': 'eng', 'mixed': 'chi_sim+eng', 'other': 'eng'}.get(language, 'eng')
         output_pdf.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(['ocrmypdf', '--skip-text', '--deskew', '-l', langs, str(source), str(output_pdf)], check=True)
+        run_hidden_cli(['ocrmypdf', '--skip-text', '--deskew', '-l', langs, str(source), str(output_pdf)], check=True)
         return output_pdf
 
 

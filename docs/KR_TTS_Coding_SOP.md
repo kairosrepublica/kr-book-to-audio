@@ -137,7 +137,7 @@ After successful full synthesis or successful retry completion:
 7. announce `Export completed` only after PASS
 ```
 
-For completed legacy jobs with empty export folders, use **9. Verify export** or:
+For completed legacy jobs with empty export folders, the desktop repairs and verifies export automatically when the job is loaded or its output folder is opened. CLI recovery remains available:
 
 ```bash
 kr-book-to-audio finalize-export PATH_TO_JOB
@@ -145,3 +145,39 @@ kr-book-to-audio verify-export PATH_TO_JOB
 ```
 
 Do not regenerate TTS when trusted internal checkpoints are sufficient.
+
+## Silent child-process policy — Istanbul Release v2.1.0
+
+Desktop operations must launch console-style external tools through `src/kr_book_to_audio/subprocess_utils.py`. On Windows the adapter suppresses child console windows. Do not introduce raw `subprocess.run()` or `subprocess.Popen()` calls for governed CLI tools in pipeline modules.
+
+Governed tools include:
+
+```text
+pdfinfo
+pdffonts
+pdftotext
+pdftoppm
+ffprobe
+ffmpeg
+tesseract
+ocrmypdf
+```
+
+Visible user actions remain separate: Explorer, opening cleaned text and playing MP3 previews.
+
+## Workflow UI policy — Istanbul Release v2.1.0
+
+The desktop layout follows the operating sequence:
+
+```text
+Paths
+Resume interrupted or incomplete jobs
+Text and speech settings
+OCR
+Text process
+Audio process
+Runtime monitor
+Footer
+```
+
+Button state is derived from authoritative manifest state, not click history. Manual export verification is not a normal user step. Manual folder recovery belongs only under Advanced recovery.

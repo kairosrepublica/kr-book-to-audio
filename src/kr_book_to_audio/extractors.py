@@ -6,9 +6,9 @@ import locale
 import os
 import re
 import struct
-import subprocess
 import zipfile
 from xml.etree import ElementTree as ET
+from .subprocess_utils import run_hidden_cli
 from .utils import require_command, sanitize_filename
 
 _SENTENCE_END = set('。！？!?')
@@ -223,8 +223,8 @@ def diagnose(path: Path) -> dict:
     require_command('pdfinfo', 'install Poppler')
     require_command('pdffonts', 'install Poppler')
     require_command('pdftotext', 'install Poppler')
-    info_result = subprocess.run(['pdfinfo', str(path)], capture_output=True, check=False)
-    fonts_result = subprocess.run(['pdffonts', str(path)], capture_output=True, check=False)
+    info_result = run_hidden_cli(['pdfinfo', str(path)], capture_output=True, check=False)
+    fonts_result = run_hidden_cli(['pdffonts', str(path)], capture_output=True, check=False)
     info = _decode_stdout(info_result.stdout)
     fonts = _decode_stdout(fonts_result.stdout)
     font_rows = [line for line in fonts.splitlines()[2:] if line.strip()]
@@ -233,7 +233,7 @@ def diagnose(path: Path) -> dict:
     sample_texts = []
     sample_pages = _pdf_sample_pages(page_count)
     for page in sample_pages:
-        result = subprocess.run(['pdftotext', '-f', str(page), '-l', str(page), '-layout', str(path), '-'], capture_output=True, check=False)
+        result = run_hidden_cli(['pdftotext', '-f', str(page), '-l', str(page), '-layout', str(path), '-'], capture_output=True, check=False)
         if result.returncode == 0:
             sample_texts.append(_decode_stdout(result.stdout))
     sample = '\n'.join(sample_texts)
@@ -273,7 +273,7 @@ def extract(path: Path) -> str:
         raise UnsupportedFormat('AZW3 / Kindle Format 8 is not yet supported. Convert it to EPUB or MOBI first.')
     if ext == '.pdf':
         require_command('pdftotext', 'install Poppler')
-        result = subprocess.run(['pdftotext', '-layout', str(path), '-'], capture_output=True, check=True)
+        result = run_hidden_cli(['pdftotext', '-layout', str(path), '-'], capture_output=True, check=True)
         return _decode_stdout(result.stdout)
     raise UnsupportedFormat(f'Unsupported input format: {ext or "<none>"}')
 
@@ -285,7 +285,7 @@ def book_title(path: Path) -> str:
     elif path.suffix.lower() == '.pdf':
         try:
             require_command('pdfinfo')
-            output = _decode_stdout(subprocess.run(['pdfinfo', str(path)], capture_output=True, check=False).stdout)
+            output = _decode_stdout(run_hidden_cli(['pdfinfo', str(path)], capture_output=True, check=False).stdout)
             match = re.search(r'^Title:\s*(.+)$', output or '', flags=re.MULTILINE)
             if match:
                 title = match.group(1).strip()

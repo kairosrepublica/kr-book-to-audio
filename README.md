@@ -11,6 +11,25 @@ Copyright © Kent Reis & Kairos República
 
 It converts text-layer PDF, EPUB, MOBI or PalmDOC-compatible AZW or PRC, DOCX, TXT and Markdown sources into independently recoverable MP3 parts and an optional merged MP3 audiobook.
 
+## Istanbul Release v2.1.0
+
+This workflow and desktop-process reliability release removes visible child-console flashes and makes the GUI read like one sequential operating procedure:
+
+- all console-style external tools route through one governed hidden-window adapter on Windows;
+- `pdfinfo`, `pdffonts`, `pdftotext`, `pdftoppm`, `ffprobe`, `ffmpeg`, `tesseract` and `ocrmypdf` no longer launch raw subprocesses;
+- operation-scoped Run log entries expose each hidden external-tool launch without leaking full local paths;
+- the screen order is Paths, Recent jobs, Text and speech settings, OCR, Text process, Audio process, Runtime monitor and footer;
+- primary workflow buttons are rendered from the authoritative manifest as completed, running, next, optional, blocked or failed;
+- export finalization and verification remain mandatory but are fully automatic; the manual **Verify export** button is removed from the normal interface;
+- manual job-folder loading moves under **Advanced recovery…**, reserved for a task missing from Recent jobs.
+
+## Historical interface evidence
+
+The following screenshot records the real Owner-machine Istanbul Release v2.0.1 interface before the v2.1.0 workflow-layout refactor:
+
+![KR Book To Audio Istanbul Release v2.0.1 historical GUI](docs/images/kr_book_to_audio_gui_istanbul_release_v2_0_1.png)
+
+
 ## Istanbul Release 2.0
 
 ## Istanbul Release v2.0.1
@@ -20,7 +39,7 @@ This reliability patch separates internal checkpoint completion from externally 
 - every successful full synthesis or retry completion automatically materializes validated Part MP3 files under the configured Export root;
 - export copying is atomic: a `.partial.mp3` file is validated before it replaces the final exported Part;
 - `export_manifest.json` records the verified deliverable tree;
-- the new **9. Verify export** action repairs completed legacy jobs whose external export folder is empty, without regenerating speech;
+- completed legacy jobs whose external export folder is empty are repaired automatically without regenerating speech;
 - **Open output folder** no longer creates a misleading empty export directory; when finalization has not happened, it offers to open the internal working-audio folder instead;
 - the Book, Local working root, Export root and Pronunciation dictionary rows now include direct **Open** actions.
 
@@ -180,7 +199,7 @@ Recommended workflow:
 9. Refresh the voice list when needed, audition the selected voice and generate Part 1.
 10. Approve Part 1 after listening.
 11. Generate all parts and retry recorded failures when needed. After the final validated Part, the app automatically finalizes and verifies the external export tree.
-12. Use **9. Verify export** to repair a completed legacy job whose external export folder is empty, without regenerating speech.
+12. Export finalization and verification run automatically after the final validated Part. Legacy completed tasks are repaired automatically when loaded or opened.
 13. Merge only after Part export verification completes. Merge refreshes `export_manifest.json`.
 14. When a prior run ended unexpectedly, select it under **Recent jobs** and click **Resume selected**. The app restores task-bound speech controls, reconciles trusted MP3 parts and continues from the first incomplete Part. Older attempts for the same source book remain preserved but are hidden from the default panel.
 

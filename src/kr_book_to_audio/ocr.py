@@ -4,8 +4,8 @@ from pathlib import Path
 from typing import Any
 import os
 import shutil
-import subprocess
 import tempfile
+from .subprocess_utils import run_hidden_cli
 from .extractors import _decode_stdout, _pdf_sample_pages, diagnose
 from .providers import OCR_PROVIDER_SPECS, ProviderUnavailable, get_ocr_provider
 from .power import keep_computer_awake
@@ -62,7 +62,7 @@ def discover_ocr_capabilities() -> dict[str, dict[str, Any]]:
             available, reason = provider.available()
             details: dict[str, Any] = {}
             if provider_id in {'tesseract-local', 'ocrmypdf-tesseract'} and shutil.which('tesseract'):
-                language_result = subprocess.run(['tesseract', '--list-langs'], capture_output=True, check=False)
+                language_result = run_hidden_cli(['tesseract', '--list-langs'], capture_output=True, check=False)
                 languages = [line.strip() for line in _decode_stdout(language_result.stdout).splitlines()[1:] if line.strip()]
                 details['languages'] = sorted(languages)
         except Exception as exc:
@@ -81,7 +81,7 @@ def _sample_pdf_text(source: Path, pages: list[int]) -> str:
         return ''
     out = []
     for page in pages:
-        result = subprocess.run(['pdftotext', '-f', str(page), '-l', str(page), '-layout', str(source), '-'], capture_output=True, check=False)
+        result = run_hidden_cli(['pdftotext', '-f', str(page), '-l', str(page), '-layout', str(source), '-'], capture_output=True, check=False)
         if result.returncode == 0:
             out.append(_decode_stdout(result.stdout))
     return '\n'.join(out)

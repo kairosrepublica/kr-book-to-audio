@@ -23,4 +23,8 @@ PaddleOCR, Tesseract, OCRmyPDF: optional local OCR providers
 ```
 ## Export verification
 
-After the final validated Part, the app materializes verified deliverables beneath the configured Export root. Use **9. Verify export** to repair a legacy completed job whose external folder is empty. The action reuses trusted internal checkpoints; it does not regenerate speech.
+After the final validated Part, the app materializes verified deliverables beneath the configured Export root. Legacy completed jobs with empty external folders are repaired automatically when loaded or opened. The repair reuses trusted internal checkpoints; it does not regenerate speech.
+
+## Silent child-process policy
+
+Console-style external tools launch through the governed hidden-window adapter on Windows. Explorer, cleaned-text opening and preview playback remain visible user actions.

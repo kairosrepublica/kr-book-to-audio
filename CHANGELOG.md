@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.1.0 — Istanbul Release v2.1.0
+
+- Added a governed hidden-window subprocess adapter for Windows desktop child CLI tools.
+- Routed Poppler, FFmpeg, ffprobe, Tesseract and OCRmyPDF launches through the adapter.
+- Added operation-scoped hidden-tool trace entries to the GUI Run log.
+- Reordered the GUI into Paths, Recent jobs, Text and speech settings, OCR, Text process, Audio process and Runtime monitor.
+- Added manifest-derived workflow button states: completed, running, next, optional, blocked and failed.
+- Removed the manual Verify export button from the normal interface; export finalization remains automatic and mandatory.
+- Moved manual job-folder loading into Advanced recovery.
+- Added the real Owner-machine v2.0.1 historical screenshot to public documentation.
+
 ## 2.0.1 — Istanbul Release v2.0.1 Export Finalization
 
 - Automatically finalize externally deliverable Part MP3 files after successful full synthesis or retry completion.
