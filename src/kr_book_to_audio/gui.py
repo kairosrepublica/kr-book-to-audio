@@ -6,6 +6,8 @@ import queue
 import subprocess
 import sys
 import threading
+import time
+from datetime import datetime
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from .audio import approve_legacy_resume_controls, approve_preview, audio_signature, audition_sample, generate_resume_voice_check, merge_parts, recover_speech_controls, retry_failed_parts, speech_controls, synthesize_parts
@@ -170,6 +172,10 @@ class App:
         self.current_index: int | None = None
         self.current_estimate = 0
         self.estimate_token = 0
+        self.current_started_monotonic: float | None = None
+        self.current_expected_seconds = 30.0
+        self.runtime_seconds_per_char: list[float] = []
+        self.logged_progress_buckets: dict[int, int] = {}
         self.ocr_analysis: OCRAnalysis | None = None
         cfg = load_config()
         self.source = tk.StringVar()
@@ -332,6 +338,8 @@ class App:
         self.parts = ttk.Treeview(parts_frame, columns=('part', 'state'), show='headings', height=19)
         self.parts.heading('part', text='Part'); self.parts.heading('state', text='State')
         self.parts.column('part', width=80, anchor='center'); self.parts.column('state', width=210, anchor='w')
+        self.parts.tag_configure('running', background='#d9f2d9', foreground='#006400')
+        self.parts.tag_configure('validating', background='#e8f5e9', foreground='#006400')
         self.parts.pack(fill='both', expand=True)
         current = ttk.Labelframe(parts_frame, text='Current part · estimated')
         current.pack(fill='x', pady=(5, 0))
@@ -344,8 +352,8 @@ class App:
         ttk.Separator(frame, orient='horizontal').grid(row=14, column=0, columnspan=5, sticky='ew', pady=(6, 2))
         footer = ttk.Frame(frame)
         footer.grid(row=15, column=0, columnspan=5, sticky='ew', pady=(0, 2))
-        ttk.Label(footer, text='COPYRIGHT © KENT REIS').pack(side='left')
-        ttk.Label(footer, text='KAIROS REPÚBLICA').pack(side='right')
+        ttk.Label(footer, text='COPYRIGHT © KENT REIS & KAIROS REPÚBLICA').pack(side='left')
+        ttk.Label(footer, text='BUILT IN CONSTANTINOPLE WITH LOVE').pack(side='right')
 
     def _tts_engine_id(self) -> str:
         return self.tts_engine_labels.get(self.tts_engine.get(), DEFAULT_TTS_ENGINE)
@@ -480,6 +488,7 @@ class App:
         if not self.busy.start(label):
             messagebox.showwarning('Job busy', f'Another operation is still running: {self.busy.label}'); return
         self._set_actions_enabled(False); self.status.config(text=label)
+        self._log_event(f'Started: {label}')
         def worker() -> None:
             try: self.events.put(('ok', label, fn(), on_success))
             except Exception as exc: self.events.put(('error', label, f'{type(exc).__name__}: {exc}', None))
@@ -497,21 +506,28 @@ class App:
                     if callback: callback(payload)
                     continue
                 if kind == 'silent-error':
-                    self._append(f'{label}: {payload}')
+                    self._log_event(f'{label}: {payload}')
                     continue
                 self.busy.finish(); self._set_actions_enabled(True)
                 if kind == 'error':
-                    self.status.config(text=f'Failed: {label}'); self._append(payload); messagebox.showerror(label, payload)
+                    self.status.config(text=f'Failed: {label}')
+                    self._log_event(f'Failed: {label} · {payload}')
+                    messagebox.showerror(label, payload)
                 else:
                     self.status.config(text=f'Completed: {label}')
+                    self._log_event(f'Completed: {label}')
                     if callback: callback(payload)
-                    self._append(json.dumps(payload, ensure_ascii=False, indent=2, default=str) if not isinstance(payload, str) else payload)
                     self._refresh_job_view()
         except queue.Empty: pass
         self.root.after(100, self._drain)
 
+    def _log_event(self, text: str) -> None:
+        stamp = datetime.now().strftime('%H:%M:%S')
+        self.log.insert('end', f'[{stamp}] {text}\n')
+        self.log.see('end')
+
     def _append(self, text: str) -> None:
-        self.log.insert('end', text + '\n'); self.log.see('end')
+        self._log_event(text)
 
     def _reset_part_view(self) -> None:
         self.part_states.clear()
@@ -530,37 +546,133 @@ class App:
         status = job_status(self.job); total = int(status['parts']); completed = int(status['completed_audio_parts']); failed = set(status['failed_audio_parts']); completed_indexes = {int(index) for index in manifest_completed(self.job)}
         for index in range(1, total + 1):
             state = 'failed' if index in failed else ('done' if index in completed_indexes else self.part_states.get(index, 'queued'))
-            self._set_part_state(index, state)
+            highlight = 'running' if state.startswith('RUNNING') or state.startswith('RETRYING') else ('validating' if state.startswith('VALIDATING') else None)
+            self._set_part_state(index, state, highlight=highlight)
         pct = (completed / total * 100) if total else 0
         self.overall_progress['value'] = pct; self.overall_label.config(text=f'{completed} / {total} parts completed · {pct:.0f}%')
         self._render_cleanup(status.get('cleanup_analysis', {}))
 
-    def _set_part_state(self, index: int, state: str) -> None:
-        self.part_states[index] = state; iid = str(index); values = (f'{index:04d}', state)
-        if self.parts.exists(iid): self.parts.item(iid, values=values)
-        else: self.parts.insert('', 'end', iid=iid, values=values)
+    def _set_part_state(self, index: int, state: str, *, highlight: str | None = None) -> None:
+        self.part_states[index] = state
+        iid = str(index)
+        values = (f'{index:04d}', state)
+        tags = (highlight,) if highlight else ()
+        if self.parts.exists(iid):
+            self.parts.item(iid, values=values, tags=tags)
+        else:
+            self.parts.insert('', 'end', iid=iid, values=values, tags=tags)
+
+    def _center_part_status(self, index: int) -> None:
+        iid = str(index)
+        if not self.parts.exists(iid):
+            return
+        children = list(self.parts.get_children())
+        if not children:
+            return
+        try:
+            position = children.index(iid)
+        except ValueError:
+            return
+        visible_rows = max(3, int(self.parts.cget('height') or 19))
+        target = max(0.0, min(1.0, (position - visible_rows // 2) / max(1, len(children))))
+        self.parts.yview_moveto(target)
+        self.parts.see(iid)
+        self.parts.selection_set(iid)
+        self.parts.focus(iid)
+
+    def _expected_seconds(self, text_chars: int) -> float:
+        if self.runtime_seconds_per_char:
+            rate = sum(self.runtime_seconds_per_char[-8:]) / len(self.runtime_seconds_per_char[-8:])
+            return max(4.0, min(300.0, rate * max(1, text_chars)))
+        return max(12.0, min(120.0, max(1, text_chars) / 180.0))
+
+    def _log_progress_bucket(self, index: int, state: str, percent: int) -> None:
+        bucket = min(100, max(0, percent)) // 10 * 10
+        previous = self.logged_progress_buckets.get(index, -10)
+        if state in {'running', 'retrying'} and bucket <= previous:
+            return
+        self.logged_progress_buckets[index] = bucket
+        if state == 'running':
+            self._log_event(f'Part {index:04d}: synthesizing · {percent}% estimated')
+        elif state == 'retrying':
+            self._log_event(f'Part {index:04d}: retrying · {percent}% estimated')
+        elif state == 'validating':
+            self._log_event(f'Part {index:04d}: validating MP3')
+        elif state == 'done':
+            self._log_event(f'Part {index:04d}: completed and checkpoint saved')
+        elif state == 'failed':
+            self._log_event(f'Part {index:04d}: failed')
 
     def _estimate_tick(self, token: int) -> None:
-        if token != self.estimate_token or self.current_index is None: return
-        self.current_estimate = min(94, self.current_estimate + 3)
+        if token != self.estimate_token or self.current_index is None or self.current_started_monotonic is None:
+            return
+        elapsed = max(0.0, time.monotonic() - self.current_started_monotonic)
+        self.current_estimate = min(94, max(self.current_estimate, int(elapsed / max(1.0, self.current_expected_seconds) * 90)))
+        state = self.part_states.get(self.current_index, 'RUNNING')
+        if 'retrying' in state.lower():
+            label_state = 'retrying'
+        else:
+            label_state = 'synthesizing audio'
         self.current_progress['value'] = self.current_estimate
-        self.current_label.config(text=f'Part {self.current_index:04d} · {self.current_estimate}% estimated')
-        if self.current_estimate < 94: self.root.after(600, lambda: self._estimate_tick(token))
+        self.current_label.config(text=f'Part {self.current_index:04d} / current · {self.current_estimate}% estimated · {label_state}')
+        self._set_part_state(self.current_index, f'RUNNING · {self.current_estimate}% estimated', highlight='running')
+        self._center_part_status(self.current_index)
+        self._log_progress_bucket(self.current_index, 'running', self.current_estimate)
+        if self.current_estimate < 94:
+            self.root.after(700, lambda: self._estimate_tick(token))
 
     def _update_part_progress(self, payload: dict) -> None:
-        index = int(payload['index']); state = str(payload['state']); estimate = int(payload.get('estimated_percent', 0))
-        self._set_part_state(index, state if state not in {'running', 'retrying'} else f'{state} · estimated')
+        index = int(payload['index'])
+        state = str(payload['state'])
+        estimate = int(payload.get('estimated_percent', 0))
+        text_chars = int(payload.get('text_chars', 0) or 0)
         if state in {'running', 'retrying'}:
-            self.current_index = index; self.current_estimate = max(5, estimate); self.estimate_token += 1; token = self.estimate_token
-            self.current_progress['value'] = self.current_estimate; self.current_label.config(text=f'Part {index:04d} · {self.current_estimate}% estimated · {state}')
-            self.root.after(600, lambda: self._estimate_tick(token))
+            self.current_index = index
+            self.current_estimate = max(5, estimate)
+            self.current_started_monotonic = time.monotonic()
+            self.current_expected_seconds = self._expected_seconds(text_chars)
+            self.estimate_token += 1
+            token = self.estimate_token
+            self.current_progress['value'] = self.current_estimate
+            self.current_label.config(text=f'Part {index:04d} / current · {self.current_estimate}% estimated · {state}')
+            self._set_part_state(index, f'{state.upper()} · {self.current_estimate}% estimated', highlight='running')
+            self._center_part_status(index)
+            self._log_progress_bucket(index, state, self.current_estimate)
+            self.root.after(700, lambda: self._estimate_tick(token))
         elif state == 'validating':
-            self.estimate_token += 1; self.current_index = index; self.current_estimate = 95; self.current_progress['value'] = 95; self.current_label.config(text=f'Part {index:04d} · 95% estimated · validating audio')
+            self.estimate_token += 1
+            self.current_index = index
+            self.current_estimate = 95
+            self.current_progress['value'] = 95
+            self.current_label.config(text=f'Part {index:04d} / current · 95% estimated · validating audio')
+            self._set_part_state(index, 'VALIDATING · 95% estimated', highlight='validating')
+            self._center_part_status(index)
+            self._log_progress_bucket(index, 'validating', 95)
         elif state == 'done':
-            self.estimate_token += 1; self.current_index = index; self.current_estimate = 100; self.current_progress['value'] = 100; self.current_label.config(text=f'Part {index:04d} · 100% done')
+            self.estimate_token += 1
+            elapsed = float(payload.get('elapsed_seconds', 0) or 0)
+            if elapsed > 0 and text_chars > 0:
+                self.runtime_seconds_per_char.append(elapsed / text_chars)
+            self.current_index = index
+            self.current_estimate = 100
+            self.current_progress['value'] = 100
+            self.current_label.config(text=f'Part {index:04d} · 100% done')
+            self._set_part_state(index, 'done')
+            self._center_part_status(index)
+            self._log_progress_bucket(index, 'done', 100)
         elif state == 'failed':
-            self.estimate_token += 1; self.current_index = index; self.current_estimate = 0; self.current_progress['value'] = 0; self.current_label.config(text=f'Part {index:04d} · failed')
-        self._refresh_job_view(); self.status.config(text=f'Part {index:04d}: {state}')
+            self.estimate_token += 1
+            self.current_index = index
+            self.current_estimate = 0
+            self.current_progress['value'] = 0
+            self.current_label.config(text=f'Part {index:04d} · failed')
+            self._set_part_state(index, 'failed')
+            self._center_part_status(index)
+            self._log_progress_bucket(index, 'failed', 0)
+        else:
+            self._set_part_state(index, state)
+        self._refresh_job_view()
+        self.status.config(text=f'Part {index:04d}: {state}')
 
     def analyze_ocr(self) -> None:
         value = self.source.get().strip()
@@ -713,6 +825,7 @@ class App:
     def _resume_from_part(self, next_part: int) -> None:
         if not self.job:
             return
+        self._log_event(f'Resume requested. Validating checkpoint and continuing from Part {next_part}.')
         self._run(
             f'Resume synthesis from Part {next_part}',
             lambda: synthesize_parts(
@@ -734,6 +847,7 @@ class App:
         job = self.job
         controls = self._current_speech_controls()
         def prepared(report: dict) -> None:
+            self._log_event(f'Guided voice check ready. Preserved audio remains unchanged. Compare original and candidate Part 1 before approval.')
             self._play(Path(report['existing_part_one']))
             self._play(Path(report['candidate_part_one']))
             approved = messagebox.askyesno(
@@ -747,6 +861,7 @@ class App:
                 self.status.config(text='Voice check paused. Adjust Voice, Rate, Pitch or Volume, then click Resume selected to compare again. Existing MP3 files remain preserved.')
                 return
             def rebound(_report: dict) -> None:
+                self._log_event(f'Guided voice verification approved. Resume start: Part {next_part}.')
                 self.status.config(text=f'Voice approved. Resuming automatically from Part {next_part}.')
                 self._resume_from_part(next_part)
             self._run(

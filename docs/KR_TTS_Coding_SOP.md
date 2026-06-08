@@ -95,3 +95,29 @@ The desktop loads the BA branding assets during startup. Missing optional icon a
 ## Legacy resume verification
 
 If a resumable legacy task lacks a complete speech-control snapshot, use the guided voice-check flow. Compare preserved Part 1 with a candidate preview. Approve only when they match closely enough for continuation. Existing MP3 files remain preserved until the Owner approves the rebind.
+
+## Portable release gate — Istanbul Release 2.0
+
+1. Run the full Python regression suite.
+2. Build `packaging/KRBookToAudio.spec` with PyInstaller on Windows.
+3. Verify the PE subsystem is Windows GUI, not console.
+4. Verify the EXE embeds the BA icon.
+5. Relocate the onedir folder into a path containing spaces.
+6. Run hidden `--portable-smoke-test` mode.
+7. Push scoped main delta.
+8. Wait for Linux and Windows GitHub Actions jobs to turn green.
+9. Create tag and GitHub Release only after remote CI green.
+10. Upload portable ZIP and SHA-256 sidecar.
+11. Generate the complete integer-Release AI co-coder takeover ZIP.
+
+## PyInstaller src-layout spec rule
+
+For the portable Windows build:
+
+```text
+SPECPATH is the directory containing packaging/KRBookToAudio.spec.
+Resolve the project root with exactly one parent traversal.
+Insert the src directory into sys.path before collect_data_files() runs.
+```
+
+This prevents an off-by-one entrypoint path and ensures package data is collected from the src-layout package.

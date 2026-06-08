@@ -233,7 +233,7 @@ def _synthesize_parts_unlocked(
     begin_execution(job, manifest, 'synthesize-parts', current_part=int(selected[0]['index']))
     append_job_log(job, 'synthesis-started', selected=[int(item['index']) for item in selected], signature=signature)
     for item in selected:
-        _emit(progress, index=int(item['index']), state='queued', estimated_percent=0)
+        _emit(progress, index=int(item['index']), state='queued', estimated_percent=0, text_chars=len((job.parts_text / item['file']).read_text(encoding='utf-8')))
     run_failures: list[dict] = []
     for item in selected:
         index = int(item['index'])
@@ -241,6 +241,9 @@ def _synthesize_parts_unlocked(
         audio_path = job.parts_audio / f'part-{index:04d}.mp3'
         partial = audio_path.with_name(audio_path.stem + '.partial.mp3')
         checkpoint_execution(job, manifest, last_step='part-started', current_part=index, current_part_state='running')
+        text = text_path.read_text(encoding='utf-8')
+        text_chars = len(text)
+        part_started_monotonic = time.monotonic()
         if audio_path.exists():
             try:
                 metadata = validator(audio_path)
@@ -250,7 +253,7 @@ def _synthesize_parts_unlocked(
                     failures.pop(str(index), None)
                     save_manifest(job, manifest)
                     checkpoint_execution(job, manifest, last_step='part-reused', current_part=index, current_part_state='done', last_completed_part=index)
-                    _emit(progress, index=index, state='done', reused=True, estimated_percent=100)
+                    _emit(progress, index=index, state='done', reused=True, estimated_percent=100, text_chars=text_chars, elapsed_seconds=0)
                     append_job_log(job, 'part-reused', index=index)
                     continue
             except RuntimeError:
@@ -264,13 +267,13 @@ def _synthesize_parts_unlocked(
         for attempt in range(1, retries + 2):
             partial.unlink(missing_ok=True)
             state = 'running' if attempt == 1 else 'retrying'
-            _emit(progress, index=index, state=state, attempt=attempt, estimated_percent=5)
+            _emit(progress, index=index, state=state, attempt=attempt, estimated_percent=5, text_chars=text_chars)
             append_job_log(job, f'part-{state}', index=index, attempt=attempt)
             try:
-                maybe = save_func(text_path.read_text(encoding='utf-8'), partial, voice=voice, rate=rate, pitch=pitch, volume=volume)
+                maybe = save_func(text, partial, voice=voice, rate=rate, pitch=pitch, volume=volume)
                 if asyncio.iscoroutine(maybe):
                     asyncio.run(maybe)
-                _emit(progress, index=index, state='validating', estimated_percent=95)
+                _emit(progress, index=index, state='validating', estimated_percent=95, text_chars=text_chars)
                 metadata = validator(partial)
                 os.replace(partial, audio_path)
                 _write_audio_sidecar(audio_path, text_sha256=item['sha256'], signature=signature, metadata=metadata, controls=controls)
@@ -279,7 +282,7 @@ def _synthesize_parts_unlocked(
                 save_manifest(job, manifest)
                 ok = True
                 checkpoint_execution(job, manifest, last_step='part-completed', current_part=index, current_part_state='done', last_completed_part=index)
-                _emit(progress, index=index, state='done', reused=False, estimated_percent=100)
+                _emit(progress, index=index, state='done', reused=False, estimated_percent=100, text_chars=text_chars, elapsed_seconds=time.monotonic() - part_started_monotonic)
                 append_job_log(job, 'part-completed', index=index, duration_seconds=metadata.get('duration_seconds'))
                 break
             except Exception as exc:
@@ -292,7 +295,7 @@ def _synthesize_parts_unlocked(
             failures[str(index)] = {'error': last_error, 'text_sha256': item['sha256'], 'signature': signature}
             run_failures.append({'index': index, 'error': last_error})
             checkpoint_execution(job, manifest, last_step='part-failed', current_part=index, current_part_state='failed')
-            _emit(progress, index=index, state='failed', error=last_error, estimated_percent=0)
+            _emit(progress, index=index, state='failed', error=last_error, estimated_percent=0, text_chars=text_chars)
             append_job_log(job, 'part-failed', index=index, error=last_error)
         if gap_seconds:
             time.sleep(gap_seconds)

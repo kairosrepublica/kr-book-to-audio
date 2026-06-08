@@ -343,3 +343,11 @@ def provider_registry_snapshot() -> dict[str, list[dict[str, Any]]]:
         'tts': [spec.to_dict() for spec in TTS_PROVIDER_SPECS.values()],
         'ocr': ocr,
     }
+
+
+def registry_snapshot() -> dict[str, list[dict[str, Any]]]:
+    """Return a JSON-safe provider registry snapshot for diagnostics and portable smoke tests."""
+    return {
+        'tts': [spec.to_dict() for spec in TTS_PROVIDER_SPECS.values()],
+        'ocr': [spec.to_dict() for spec in OCR_PROVIDER_SPECS.values()],
+    }

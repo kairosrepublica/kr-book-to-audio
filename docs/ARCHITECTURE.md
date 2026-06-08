@@ -124,3 +124,16 @@ Resume presentation uses explicit states: `resume-ready`, `voice-check-required`
 ## Packaging and CI boundary
 
 Branding assets live inside package data and resolve from source trees, installed packages and future frozen bundles. GitHub Actions installs `.[test]`, and Release orchestration waits for a green `main` workflow before tag and Release creation.
+
+## Istanbul Release 2.0 portable and runtime-visibility layer
+
+- `src/kr_book_to_audio/portable.py`: frozen-runtime smoke evidence and LocalAppData boundary checks.
+- `packaging/KRBookToAudio.spec`: PyInstaller onedir Windows GUI bundle.
+- `packaging/verify_portable_windows.py`: PE subsystem, embedded icon and relocation-safe smoke validation.
+- GUI runtime event stream: timestamped, auto-scrolling status log.
+- Active Part rendering: green-highlighted, auto-centered row plus continuously changing estimated percentage.
+- Exact overall progress remains derived from validated completed MP3 parts only.
+
+## Portable spec root resolution
+
+`packaging/KRBookToAudio.spec` treats PyInstaller `SPECPATH` as the spec-directory path, resolves the project root through one parent traversal and preloads `src` before hook-based package-data collection.

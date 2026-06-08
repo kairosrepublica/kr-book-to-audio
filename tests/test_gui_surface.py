@@ -32,8 +32,8 @@ class GuiSurfaceTests(unittest.TestCase):
         self.assertIn('start=next_part', source)
         self.assertIn('_rehydrate_job_speech_controls', source)
         self.assertIn('apply_window_icon(self.root)', source)
-        self.assertIn("text='COPYRIGHT © KENT REIS'", source)
-        self.assertIn("text='KAIROS REPÚBLICA'", source)
+        self.assertIn("text='COPYRIGHT © KENT REIS & KAIROS REPÚBLICA'", source)
+        self.assertIn("text='BUILT IN CONSTANTINOPLE WITH LOVE'", source)
         self.assertIn("orient='horizontal'", source)
 
 

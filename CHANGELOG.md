@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.0.0 — Istanbul Release 2.0
+
+- Added portable Windows x64 onedir executable packaging with no console window.
+- Added timestamped auto-scrolling runtime log.
+- Added green-highlighted, auto-centered current Part with dynamic estimated progress.
+- Added Linux and Windows CI jobs with portable smoke validation.
+- Added public GUI screenshot and bilingual README branding.
+- Added complete integer-Release AI co-coder takeover handoff.
+
 ## 1.3.4
 
 - declare Pillow in the test extra and package branding assets inside the Python distribution;
@@ -115,3 +124,5 @@ Production Run Safety release.
 ## Istanbul Release v1.0.0 - 2026-06-08
 
 Founding public release.
+
+- Correct the Windows PyInstaller spec-root contract: treat `SPECPATH` as the spec directory, use one parent traversal and preload `src` before hook-based package-data collection.

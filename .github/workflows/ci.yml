@@ -17,3 +17,15 @@ jobs:
       - run: python -m unittest discover -s tests -v
         env:
           KR_B2A_APP_ROOT: ${{ runner.temp }}/kr-b2a-tests
+  windows-portable-smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -e .[test,portable]
+      - run: python -m PyInstaller --noconfirm --clean packaging/KRBookToAudio.spec
+      - run: python packaging/verify_portable_windows.py --dist-dir "dist/KRBookToAudio" --evidence "portable-smoke-evidence.json"
+        env:
+          KR_B2A_APP_ROOT: ${{ runner.temp }}/kr-b2a-portable-smoke

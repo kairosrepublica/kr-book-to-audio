@@ -1,8 +1,28 @@
 # KR Book To Audio
 
-KR Book To Audio is a local, resumable book-to-audiobook pipeline with multilingual text processing, Chinese-language safeguards, an OCR advisor and provider registries for future engine expansion.
+**Possibly the world's best book-to-audio conversion software.**<br>
+**可能是全世界最好用的 Book-to-Audio 轉換軟體。**
+
+![KR Book To Audio desktop GUI](docs/images/kr_book_to_audio_gui_istanbul_release_2_0.png)
+
+Built by Kent Reis from Constantinople with love. AD May 20, 2026
+
+Copyright © Kent Reis & Kairos República
 
 It converts text-layer PDF, EPUB, MOBI or PalmDOC-compatible AZW or PRC, DOCX, TXT and Markdown sources into independently recoverable MP3 parts and an optional merged MP3 audiobook.
+
+## Istanbul Release 2.0
+
+The Istanbul Release 2.0 milestone adds a portable Windows x64 desktop distribution and makes long-running synthesis visibly auditable:
+
+- double-click `KRBookToAudio.exe`; no Python command and no PowerShell window;
+- timestamped, auto-scrolling runtime log for preparation, OCR, preview, guided resume, synthesis, retries and merge;
+- green-highlighted active Part, auto-centered in the Part-status list;
+- continuously changing estimated current-Part percentage and progress bar;
+- exact overall completed-Part progress remains separate from estimated current-Part progress;
+- `onedir` portable packaging keeps `_internal` visible and relocation-safe;
+- Windows CI builds and smoke-tests the portable bundle before milestone publication;
+- complete AI co-coder takeover handoff is mandatory for this integer Release.
 
 ## Istanbul Release v1.3.4
 
@@ -110,7 +130,13 @@ The application does not auto-install large OCR dependencies.
 
 ## Desktop workflow
 
-Launch:
+Portable Windows launch:
+
+```text
+Double-click KRBookToAudio.exe
+```
+
+Developer launch:
 
 ```bash
 kr-book-to-audio-gui
