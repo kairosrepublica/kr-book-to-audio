@@ -4,9 +4,18 @@ KR Book To Audio is a local, resumable book-to-audiobook pipeline with multiling
 
 It converts text-layer PDF, EPUB, MOBI or PalmDOC-compatible AZW or PRC, DOCX, TXT and Markdown sources into independently recoverable MP3 parts and an optional merged MP3 audiobook.
 
-## Istanbul Release v1.3.1
+## Istanbul Release v1.3.2
 
-This hotfix keeps the durable-resume architecture and repairs the Recent-jobs experience:
+This hotfix completes the durable-resume user path:
+
+- task-bound TTS controls are persisted in each manifest and MP3 sidecar;
+- Resume selected restores provider, voice, rate, pitch and volume before continuing;
+- legacy default controls are recovered safely by matching the stored audio signature;
+- legacy custom controls that cannot be proven stop with an actionable Part-1 approval message instead of a low-level RuntimeError;
+- default Recent jobs shows only the newest resumable attempt for each source book;
+- synthesis resumes directly from the first incomplete Part.
+
+The v1.3.1 Recent-jobs cleanup remains active:
 
 - validation fixtures are isolated from the real application state root;
 - stale missing-manifest history entries are pruned automatically;
@@ -108,7 +117,7 @@ Recommended workflow:
 9. Refresh the voice list when needed, audition the selected voice and generate Part 1.
 10. Approve Part 1 after listening.
 11. Generate all parts, retry recorded failures when needed and merge only after validation completes.
-12. When a prior run ended unexpectedly, select it under **Recent jobs** and click **Resume selected**. The app reconciles trusted MP3 parts and continues from the first incomplete Part.
+12. When a prior run ended unexpectedly, select it under **Recent jobs** and click **Resume selected**. The app restores task-bound speech controls, reconciles trusted MP3 parts and continues from the first incomplete Part. Older attempts for the same source book remain preserved but are hidden from the default panel.
 
 Changing the reviewed text, pronunciation dictionary, selected voice, speaking controls or TTS provider invalidates the relevant approval.
 
@@ -144,7 +153,7 @@ recommends a local OCR provider
 supports sample preview before full OCR
 ```
 
-Cloud OCR adapters are reserved but disabled. No page is uploaded to a remote API in v1.3.0.
+Cloud OCR adapters are reserved but disabled. No page is uploaded to a remote API in v1.3.2.
 
 ## Optional cleanup boundary
 

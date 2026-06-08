@@ -17,8 +17,54 @@ from .utils import append_job_log, atomic_write_json, clear_files, job_operation
 ProgressCallback = Callable[[dict], None]
 
 
+def speech_controls(*, voice: str, rate: str = '+0%', pitch: str = '+0Hz', volume: str = '+0%', provider_id: str = 'edge-tts') -> dict[str, str]:
+    return {
+        'provider_id': str(provider_id),
+        'voice': str(voice),
+        'rate': str(rate),
+        'pitch': str(pitch),
+        'volume': str(volume),
+    }
+
+
 def audio_signature(*, voice: str, rate: str = '+0%', pitch: str = '+0Hz', volume: str = '+0%', provider_id: str = 'edge-tts') -> str:
     return sha256_text('|'.join([provider_id, voice, rate, pitch, volume]))
+
+
+def controls_match_signature(controls: dict | None, signature: str | None) -> bool:
+    if not isinstance(controls, dict) or not signature:
+        return False
+    required = ('provider_id', 'voice', 'rate', 'pitch', 'volume')
+    if any(not isinstance(controls.get(key), str) for key in required):
+        return False
+    return audio_signature(**{key: controls[key] for key in required}) == signature
+
+
+def recover_speech_controls(manifest: dict, *, preferred: dict | None = None, candidate_voices: list[str] | tuple[str, ...] = ()) -> dict[str, str] | None:
+    """Return task-bound speech controls or safely recover a legacy default tuple."""
+    audio = manifest.get('audio', {})
+    signature = audio.get('signature')
+    stored = audio.get('controls')
+    if controls_match_signature(stored, signature):
+        return speech_controls(**stored)
+    candidates: list[dict[str, str]] = []
+    if isinstance(preferred, dict):
+        try:
+            candidates.append(speech_controls(**preferred))
+        except TypeError:
+            pass
+    provider_id = str(audio.get('provider_id') or 'edge-tts')
+    for voice in candidate_voices:
+        candidates.append(speech_controls(provider_id=provider_id, voice=str(voice)))
+    seen: set[tuple[str, str, str, str, str]] = set()
+    for candidate in candidates:
+        key = tuple(candidate[name] for name in ('provider_id', 'voice', 'rate', 'pitch', 'volume'))
+        if key in seen:
+            continue
+        seen.add(key)
+        if controls_match_signature(candidate, signature):
+            return candidate
+    return None
 
 
 def expected_audio_paths(job: JobPaths, manifest: dict) -> list[Path]:
@@ -29,8 +75,11 @@ def audio_metadata_path(audio_path: Path) -> Path:
     return audio_path.with_name(audio_path.stem + '.meta.json')
 
 
-def _write_audio_sidecar(audio_path: Path, *, text_sha256: str, signature: str, metadata: dict) -> None:
-    atomic_write_json(audio_metadata_path(audio_path), {'text_sha256': text_sha256, 'signature': signature, **metadata})
+def _write_audio_sidecar(audio_path: Path, *, text_sha256: str, signature: str, metadata: dict, controls: dict | None = None) -> None:
+    payload = {'text_sha256': text_sha256, 'signature': signature, **metadata}
+    if controls_match_signature(controls, signature):
+        payload['controls'] = dict(controls)
+    atomic_write_json(audio_metadata_path(audio_path), payload)
 
 
 def reconcile_audio_state(job: JobPaths, *, validator: Callable[[Path], dict] = None) -> dict:
@@ -38,6 +87,7 @@ def reconcile_audio_state(job: JobPaths, *, validator: Callable[[Path], dict] = 
     validator = validator or validate_mp3
     manifest = load_manifest(job)
     signature = manifest.get('audio', {}).get('signature')
+    controls = manifest.get('audio', {}).get('controls')
     completed = manifest.setdefault('audio', {}).setdefault('completed', {})
     failures = manifest['audio'].setdefault('failures', {})
     removed_partial = []
@@ -55,7 +105,7 @@ def reconcile_audio_state(job: JobPaths, *, validator: Callable[[Path], dict] = 
                 metadata = validator(audio_path)
                 if saved.get('text_sha256') != item.get('sha256') or saved.get('signature') != signature or saved.get('sha256') != metadata.get('sha256'):
                     raise RuntimeError('stale completion record')
-                _write_audio_sidecar(audio_path, text_sha256=item['sha256'], signature=signature, metadata=metadata)
+                _write_audio_sidecar(audio_path, text_sha256=item['sha256'], signature=signature, metadata=metadata, controls=controls)
                 reused.append(index)
                 continue
             except Exception:
@@ -138,10 +188,11 @@ def _emit(progress: ProgressCallback | None, **payload: object) -> None:
         progress(payload)
 
 
-def _invalidate_for_signature(job: JobPaths, manifest: dict, signature: str) -> None:
+def _invalidate_for_signature(job: JobPaths, manifest: dict, controls: dict[str, str]) -> None:
+    signature = audio_signature(**controls)
     if manifest.get('audio', {}).get('signature') == signature:
         return
-    reset_audio_state(job, manifest, reason='voice-or-speaking-controls-changed', signature=signature)
+    reset_audio_state(job, manifest, reason='voice-or-speaking-controls-changed', signature=signature, controls=controls)
 
 
 def _synthesize_parts_unlocked(
@@ -164,11 +215,13 @@ def _synthesize_parts_unlocked(
 ) -> dict:
     manifest = load_manifest(job)
     assert_proofread_approved(job, manifest)
-    signature = audio_signature(voice=voice, rate=rate, pitch=pitch, volume=volume, provider_id=provider_id)
+    controls = speech_controls(voice=voice, rate=rate, pitch=pitch, volume=volume, provider_id=provider_id)
+    signature = audio_signature(**controls)
     if require_preview_approval:
         assert_preview_approved(manifest, signature=signature)
-    _invalidate_for_signature(job, manifest, signature)
+    _invalidate_for_signature(job, manifest, controls)
     manifest['audio']['provider_id'] = provider_id
+    manifest['audio']['controls'] = controls
     completed = manifest['audio']['completed']
     failures = manifest['audio']['failures']
     parts = manifest['parts']
@@ -220,7 +273,7 @@ def _synthesize_parts_unlocked(
                 _emit(progress, index=index, state='validating', estimated_percent=95)
                 metadata = validator(partial)
                 os.replace(partial, audio_path)
-                _write_audio_sidecar(audio_path, text_sha256=item['sha256'], signature=signature, metadata=metadata)
+                _write_audio_sidecar(audio_path, text_sha256=item['sha256'], signature=signature, metadata=metadata, controls=controls)
                 completed[str(index)] = {'text_sha256': item['sha256'], 'signature': signature, **metadata}
                 failures.pop(str(index), None)
                 save_manifest(job, manifest)
@@ -280,7 +333,8 @@ def approve_preview(job: JobPaths, *, voice: str, rate: str = '+0%', pitch: str 
     with job_operation_lock(job, 'approve-preview'):
         manifest = load_manifest(job)
         assert_proofread_approved(job, manifest)
-        signature = audio_signature(voice=voice, rate=rate, pitch=pitch, volume=volume, provider_id=provider_id)
+        controls = speech_controls(voice=voice, rate=rate, pitch=pitch, volume=volume, provider_id=provider_id)
+        signature = audio_signature(**controls)
         if manifest['audio'].get('signature') != signature:
             raise RuntimeError('Part 1 must be generated with the currently selected voice and speaking rate before approval.')
         first = manifest['parts'][0]
@@ -290,6 +344,8 @@ def approve_preview(job: JobPaths, *, voice: str, rate: str = '+0%', pitch: str 
         metadata = validator(job.parts_audio / 'part-0001.mp3')
         if metadata.get('sha256') != saved.get('sha256'):
             raise RuntimeError('Part 1 audio changed after synthesis. Generate the preview again.')
+        manifest['audio']['provider_id'] = provider_id
+        manifest['audio']['controls'] = controls
         approval = approve_preview_state(job, manifest, signature=signature)
         save_manifest(job, manifest)
         return approval

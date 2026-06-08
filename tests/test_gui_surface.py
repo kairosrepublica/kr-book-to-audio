@@ -23,6 +23,9 @@ class GuiSurfaceTests(unittest.TestCase):
         self.assertIn('Keep computer awake during OCR or TTS', source)
         self.assertLess(source.index("text='Text and speech'"), source.index("text='Long-running operations'"))
         self.assertIn('Resume synthesis from Part', source)
+        self.assertIn('The original speech controls could not be restored safely', source)
+        self.assertIn('start=next_part', source)
+        self.assertIn('_rehydrate_job_speech_controls', source)
 
 
 if __name__ == '__main__':

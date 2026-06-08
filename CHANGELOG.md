@@ -1,5 +1,18 @@
 # Changelog
 
+## Istanbul Release v1.3.2 - 2026-06-08
+
+Resume speech-control rehydration and recent-attempt deduplication hotfix.
+
+### Fixed
+
+- Persist task-bound provider, voice, rate, pitch and volume controls.
+- Restore stored controls before one-click resume.
+- Recover legacy default controls by audio-signature matching.
+- Replace low-level preview-gate RuntimeError with an actionable legacy-task message when controls cannot be proven.
+- Resume directly from the first incomplete Part.
+- Collapse older resumable attempts for the same source book from the default panel.
+
 ## Istanbul Release v1.3.1 - 2026-06-08
 
 Recent-jobs usability and validation-state isolation hotfix.

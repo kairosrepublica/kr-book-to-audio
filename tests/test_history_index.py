@@ -68,6 +68,21 @@ class HistoryIndexTests(unittest.TestCase):
             self.assertEqual([item['job_id'] for item in list_resumable_jobs()], ['resume'])
             self.assertEqual(display_status(list_resumable_jobs()[0]), 'Ready to resume')
 
+    def test_resumable_view_collapses_older_attempts_for_same_source(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {'KR_B2A_APP_ROOT': str(Path(td) / 'app'), 'KR_B2A_HISTORY_SYNC': '1'}):
+            roots = []
+            for name in ('older', 'newest'):
+                root = Path(td) / name
+                (root / '_work').mkdir(parents=True)
+                (root / '_work' / 'job_manifest.json').write_text('{}', encoding='utf-8')
+                roots.append(root)
+            write_history({'jobs': [
+                {'job_id': 'older', 'title': 'same book', 'job_root': str(roots[0]), 'source_sha256': 'abc', 'updated_utc': '2026-01-01T00:00:00Z', 'total_parts': 34, 'completed_parts': 16, 'resumable': True},
+                {'job_id': 'newest', 'title': 'same book', 'job_root': str(roots[1]), 'source_sha256': 'abc', 'updated_utc': '2026-02-01T00:00:00Z', 'total_parts': 34, 'completed_parts': 16, 'resumable': True},
+            ]})
+            self.assertEqual([item['job_id'] for item in list_resumable_jobs()], ['newest'])
+            self.assertEqual([item['job_id'] for item in list_resumable_jobs(include_older_attempts=True)], ['newest', 'older'])
+
     def test_last_active_is_compact_local_time(self):
         rendered = format_last_active('2026-06-08T06:46:12.020013+00:00')
         self.assertRegex(rendered, r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$')

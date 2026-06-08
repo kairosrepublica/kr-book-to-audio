@@ -69,6 +69,7 @@ def _normalize_entry(entry: dict[str, Any]) -> dict[str, Any]:
         'title': str(entry.get('title') or 'Untitled'),
         'job_root': str(entry.get('job_root') or ''),
         'export_root': str(entry.get('export_root') or ''),
+        'source_sha256': str(entry.get('source_sha256') or ''),
         'created_utc': str(entry.get('created_utc') or ''),
         'updated_utc': str(entry.get('updated_utc') or _utc_now()),
         'last_operation': entry.get('last_operation'),
@@ -124,6 +125,7 @@ def history_entry_from_manifest(job: JobPaths, manifest: dict[str, Any]) -> dict
         'title': manifest.get('title'),
         'job_root': str(job.root),
         'export_root': str(job.export),
+        'source_sha256': str(manifest.get('source', {}).get('sha256') or ''),
         'created_utc': manifest.get('created_utc'),
         'updated_utc': manifest.get('updated_utc') or _utc_now(),
         'last_operation': execution.get('last_operation'),
@@ -176,11 +178,23 @@ def list_recent_jobs(path: Path | None = None, *, include_hidden: bool = False) 
     return sorted(jobs, key=lambda item: item.get('updated_utc') or '', reverse=True)
 
 
-def list_resumable_jobs(path: Path | None = None) -> list[dict[str, Any]]:
-    return [
+def list_resumable_jobs(path: Path | None = None, *, include_older_attempts: bool = False) -> list[dict[str, Any]]:
+    candidates = [
         item for item in list_recent_jobs(path)
         if item.get('resumable') or item.get('interrupted') or int(item.get('failed_parts') or 0)
     ]
+    if include_older_attempts:
+        return candidates
+    newest: list[dict[str, Any]] = []
+    seen_sources: set[str] = set()
+    for item in candidates:
+        source_sha256 = str(item.get('source_sha256') or '').strip()
+        key = f'sha256:{source_sha256}' if source_sha256 else f'job:{item.get("job_id")}'
+        if key in seen_sources:
+            continue
+        seen_sources.add(key)
+        newest.append(item)
+    return newest
 
 
 def remove_from_history(job_id: str, path: Path | None = None) -> None:

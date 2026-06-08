@@ -63,7 +63,8 @@ When a prior process ended unexpectedly:
 5. residual `.partial.mp3` files are removed;
 6. completed MP3 records are revalidated;
 7. only sidecar-bound orphan MP3 files with matching text and audio signatures are adopted;
-8. synthesis resumes from the first incomplete Part when proofreading and Part-1 approval remain valid.
+8. the application restores the task-bound TTS provider, voice, rate, pitch and volume;
+9. synthesis resumes directly from the first incomplete Part when proofreading and Part-1 approval remain valid.
 
 Windows keep-awake is enabled by default during long OCR and TTS work. It prevents automatic sleep only.
 
@@ -77,3 +78,10 @@ kr-book-to-audio recover PATH_TO_JOB
 ## Recent-job index safety
 
 Validation and test runs must use an isolated `KR_B2A_APP_ROOT`. The GUI resume panel prunes entries whose job manifest no longer exists and displays only interrupted or incomplete tasks by default.
+
+
+## Legacy resume boundary
+
+Jobs created before v1.3.2 may not store raw speech controls. The application attempts safe recovery by comparing candidate controls against the stored audio signature. When no exact match exists, it preserves completed MP3 files and asks the operator to regenerate and approve Part 1. Do not bypass that gate.
+
+The default resume panel collapses older resumable attempts for the same source book. Older attempts remain in the rebuildable history index.

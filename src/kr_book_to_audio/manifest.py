@@ -42,6 +42,7 @@ def ensure_manifest_defaults(payload: dict) -> dict:
     audio = payload.setdefault('audio', {})
     audio.setdefault('provider_id', 'edge-tts')
     audio.setdefault('signature', None)
+    audio.setdefault('controls', None)
     audio.setdefault('completed', {})
     audio.setdefault('failures', {})
     gates = payload.setdefault('gates', {})

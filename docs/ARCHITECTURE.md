@@ -64,7 +64,7 @@ Reserved providers are disabled and cannot run. Credentials may only come from O
 
 `execution_history.json` is a rebuildable application-level navigation index stored under the stable application root. The GUI uses it to show recent jobs across upgrades.
 
-Validated MP3 files receive sidecar metadata binding the MP3 hash to the text hash and TTS audio signature. After an abnormal exit, recovery deletes residual partial files, validates recorded MP3 files, adopts only trusted sidecar-bound orphans and resumes from the first incomplete Part.
+Validated MP3 files receive sidecar metadata binding the MP3 hash to the text hash, TTS audio signature and task-bound speech controls. After an abnormal exit, recovery deletes residual partial files, validates recorded MP3 files, adopts only trusted sidecar-bound orphans and resumes from the first incomplete Part.
 
 Stale lock recovery is conservative: an existing lock is removed automatically only after the recorded process ID is confirmed dead. Malformed locks remain blocked for manual review.
 
@@ -100,4 +100,11 @@ The merger trusts only manifest-declared numeric sequences, provider-bound audio
 
 ## Recent-job presentation boundary
 
-`execution_history.json` is a rebuildable index. The GUI resume panel displays only valid job roots with an existing `_work/job_manifest.json` and only actionable interrupted or incomplete jobs. Validation fixtures must use an isolated `KR_B2A_APP_ROOT`.
+`execution_history.json` is a rebuildable index. The GUI resume panel displays only valid job roots with an existing `_work/job_manifest.json`, only actionable interrupted or incomplete jobs and only the newest resumable attempt for each source book. Validation fixtures must use an isolated `KR_B2A_APP_ROOT`.
+
+
+## Resume speech-control boundary
+
+Each job manifest stores the TTS provider, voice, rate, pitch and volume that produced the approved Part-1 signature. One-click resume restores this task-bound tuple before continuing from the first incomplete Part.
+
+Legacy tasks created before v1.3.2 may not contain the raw control tuple. The application may recover only a tuple that cryptographically matches the stored audio signature. It must not guess custom settings. If no safe match exists, existing MP3 files remain preserved and the operator receives an actionable request to generate and approve Part 1 again.

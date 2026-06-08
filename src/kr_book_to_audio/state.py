@@ -39,11 +39,19 @@ def reset_preview_gate(manifest: dict) -> None:
     preview.update({'approved_audio_signature': None, 'approved_part_sha256': None, 'approved_utc': None})
 
 
-def reset_audio_state(job: JobPaths, manifest: dict, *, reason: str, signature: str | None = None) -> None:
+def reset_audio_state(job: JobPaths, manifest: dict, *, reason: str, signature: str | None = None, controls: dict | None = None) -> None:
     clear_files(job.parts_audio, 'part-*.mp3')
     clear_files(job.parts_audio, 'part-*.partial.mp3')
     clear_files(job.parts_audio, 'part-*.meta.json')
-    manifest['audio'] = {'signature': signature, 'completed': {}, 'failures': {}}
+    old_audio = manifest.get('audio', {})
+    selected_controls = controls if controls is not None else old_audio.get('controls')
+    manifest['audio'] = {
+        'provider_id': (selected_controls or {}).get('provider_id', old_audio.get('provider_id', 'edge-tts')),
+        'signature': signature,
+        'controls': selected_controls,
+        'completed': {},
+        'failures': {},
+    }
     reset_preview_gate(manifest)
     append_job_log(job, 'audio-invalidated', reason=reason, signature=signature)
 

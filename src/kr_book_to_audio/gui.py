@@ -7,9 +7,9 @@ import subprocess
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-from .audio import approve_preview, audition_sample, merge_parts, retry_failed_parts, synthesize_parts
+from .audio import approve_preview, audio_signature, audition_sample, merge_parts, recover_speech_controls, retry_failed_parts, speech_controls, synthesize_parts
 from .config import DEFAULT_KEEP_AWAKE, DEFAULT_PITCH, DEFAULT_PROCESSING_PROFILE, DEFAULT_RATE, DEFAULT_TTS_ENGINE, DEFAULT_VOICE, DEFAULT_VOLUME, default_export_root, load_config, local_work_root, save_config
-from .manifest import load_manifest
+from .manifest import load_manifest, save_manifest
 from .history import display_status, format_last_active, list_recent_jobs, list_resumable_jobs, rebuild_history, remove_from_history
 from .recovery import recover_job, scan_and_recover_jobs
 from .models import JobPaths
@@ -229,7 +229,7 @@ class App:
             button = ttk.Button(recent, text=label, command=method)
             button.grid(row=1, column=col, sticky='w', padx=5, pady=(0, 5))
             self.action_buttons.append(button)
-        add_help(recent, 'Shows only interrupted or incomplete tasks that can be resumed. Completed tasks remain in the rebuildable history index but stay hidden here. Removing an entry does not delete files.', row=1, column=4, sticky='w')
+        add_help(recent, 'Shows the newest interrupted or incomplete attempt for each source book. Older attempts remain in the rebuildable history index but stay hidden here. Removing an entry does not delete files.', row=1, column=4, sticky='w')
 
         actions = ttk.Frame(frame)
         actions.grid(row=8, column=0, columnspan=5, sticky='ew', pady=8)
@@ -283,6 +283,53 @@ class App:
 
     def _profile_id(self) -> str:
         return PROFILE_LABELS.get(self.profile.get(), DEFAULT_PROCESSING_PROFILE)
+
+
+    def _current_speech_controls(self) -> dict[str, str]:
+        return speech_controls(
+            provider_id=self._tts_engine_id(),
+            voice=self.voice.get(),
+            rate=self.rate.get(),
+            pitch=self.pitch.get(),
+            volume=self.volume.get(),
+        )
+
+    def _set_speech_controls(self, controls: dict[str, str]) -> None:
+        labels_by_id = {provider_id: label for label, provider_id in self.tts_engine_labels.items()}
+        provider_id = controls.get('provider_id', DEFAULT_TTS_ENGINE)
+        if provider_id in labels_by_id:
+            self.tts_engine.set(labels_by_id[provider_id])
+        self.rate.set(controls.get('rate', DEFAULT_RATE))
+        self.pitch.set(controls.get('pitch', DEFAULT_PITCH))
+        self.volume.set(controls.get('volume', DEFAULT_VOLUME))
+        voice = controls.get('voice', DEFAULT_VOICE)
+        available = list(self.voice_combo['values'])
+        if voice not in available:
+            self.voice_combo['values'] = [voice, *available]
+        self.voice.set(voice)
+
+    def _rehydrate_job_speech_controls(self, job: JobPaths, manifest: dict) -> bool:
+        candidates = [str(item.get('short_name')) for item in self.voice_records if item.get('short_name')]
+        controls = recover_speech_controls(
+            manifest,
+            preferred=self._current_speech_controls(),
+            candidate_voices=candidates,
+        )
+        if not controls:
+            return False
+        manifest['audio']['controls'] = controls
+        save_manifest(job, manifest)
+        self._set_speech_controls(controls)
+        return True
+
+    def _resume_controls_are_approved(self, job: JobPaths) -> bool:
+        manifest = load_manifest(job)
+        current_signature = audio_signature(**self._current_speech_controls())
+        preview = manifest.get('gates', {}).get('preview', {})
+        return bool(
+            preview.get('approved_audio_signature') == current_signature
+            and preview.get('approved_part_sha256') == (manifest.get('parts') or [{}])[0].get('sha256')
+        )
 
     def _browse_source(self) -> None:
         initial = self.source_folder if Path(self.source_folder).exists() else str(Path.home())
@@ -559,12 +606,16 @@ class App:
         self.job = job
         self._reset_part_view()
         manifest = load_manifest(job)
+        profile_id = manifest.get('text', {}).get('processing_profile', manifest.get('options', {}).get('processing_profile', DEFAULT_PROCESSING_PROFILE))
+        self.profile.set(PROFILE_BY_ID.get(str(profile_id), 'Auto detect · recommended'))
+        controls_rehydrated = self._rehydrate_job_speech_controls(job, manifest)
         self.dictionary.set(manifest.get('text', {}).get('dictionary_path_runtime_only') or '')
         self._refresh_job_view()
         self.refresh_recent_jobs()
         next_part = report.get('next_part')
         if report.get('interrupted') or report.get('stale_lock_removed'):
             self.status.config(text=f'Interrupted task recovered. Resume from Part {next_part or "complete"}.')
+        report['speech_controls_rehydrated'] = controls_rehydrated
         return report
 
     def resume(self) -> None:
@@ -598,11 +649,19 @@ class App:
         if not report or not report.get('next_part') or not self.job:
             return
         status = job_status(self.job)
-        if not status.get('proofread_approved') or not status.get('preview_approved'):
-            self.status.config(text=f"Task loaded at Part {report['next_part']}. Approve reviewed text and Part 1 before resuming synthesis.")
-            return
         next_part = int(report['next_part'])
-        self._run(f'Resume synthesis from Part {next_part}', lambda: synthesize_parts(self.job, provider_id=self._tts_engine_id(), voice=self.voice.get(), rate=self.rate.get(), pitch=self.pitch.get(), volume=self.volume.get(), progress=self._progress_event, keep_awake=self.keep_awake.get()))
+        if not status.get('proofread_approved'):
+            messagebox.showinfo('Resume needs reviewed-text approval', f'Task loaded at Part {next_part}. Approve the reviewed text and rebuild parts before resuming.')
+            self.status.config(text=f'Task loaded at Part {next_part}. Reviewed-text approval is required before resume.')
+            return
+        if not report.get('speech_controls_rehydrated') or not status.get('preview_approved') or not self._resume_controls_are_approved(self.job):
+            messagebox.showinfo(
+                'Resume needs Part 1 approval',
+                f'Task loaded at Part {next_part}. The original speech controls could not be restored safely. Existing MP3 files remain preserved. Generate and approve Part 1 before resuming.',
+            )
+            self.status.config(text=f'Task loaded at Part {next_part}. Generate and approve Part 1 before resuming synthesis.')
+            return
+        self._run(f'Resume synthesis from Part {next_part}', lambda: synthesize_parts(self.job, provider_id=self._tts_engine_id(), voice=self.voice.get(), rate=self.rate.get(), pitch=self.pitch.get(), volume=self.volume.get(), start=next_part, progress=self._progress_event, keep_awake=self.keep_awake.get()))
 
     def open_selected_output(self) -> None:
         item = self._selected_recent()
