@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.3.0 — Istanbul Release v2.3.0
+
+- Added a per-job SQLite authoritative state engine with WAL, synchronous FULL, quick-check startup validation and monotonic revisions.
+- Close partially initialized SQLite handles when setup, integrity checks or schema initialization fail, so Windows cleanup and safe recovery are not blocked by leaked file handles.
+- Preserved JSON manifests as derived readable snapshots and migrated legacy JSON-only tasks without deleting prior evidence.
+- Added durable file replacement with unique partial files, flush, fsync, same-path serialization and bounded Windows retry.
+- Added single-writer job leases and stale-revision rejection.
+- Added responsive initial desktop sizing: 1900 px height on 2160p screens and scrollable compact layouts on smaller displays.
+- Disabled unnecessary OCR execution when native text is already usable.
+- Added receipt-based quiet export finalization to deduplicate ffprobe launches.
+- Added the real Owner-machine v2.1.0 historical screenshot to public documentation.
+
 ## 2.1.0 — Istanbul Release v2.1.0
 
 - Added a governed hidden-window subprocess adapter for Windows desktop child CLI tools.

@@ -169,3 +169,20 @@ export_is_verified(job)
 `src/kr_book_to_audio/workflow_state.py` derives button presentation from the authoritative job manifest rather than click history. The GUI renders completed, running, next, optional, blocked and failed actions.
 
 The primary screen no longer exposes manual export verification or raw job-folder loading. Export finalization is mandatory and automatic. Disaster recovery by folder remains available only under Advanced recovery.
+
+## Istanbul Release v2.3.0 durable state engine
+
+```text
+<job>\_work\state\job_state.sqlite3
+    authoritative transactional state
+
+<job>\_work\job_manifest.json
+    human-readable derived snapshot
+
+<job>\_work\job_manifest.legacy.json
+    preserved migration evidence for pre-v2.3 jobs
+```
+
+The SQLite layer uses WAL journaling, synchronous FULL durability, bounded busy waiting, monotonic revisions and a single-writer lease. MP3 files remain ordinary files. Export finalization reuses trusted validation receipts to avoid redundant ffprobe launches.
+
+The GUI computes an adaptive initial geometry and uses a vertically scrollable root container so smaller displays retain access to every workflow control.

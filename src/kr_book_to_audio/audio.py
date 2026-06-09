@@ -13,6 +13,7 @@ from .models import JobPaths
 from .state import approve_preview_state, assert_preview_approved, assert_proofread_approved, reset_audio_state
 from .subprocess_utils import run_hidden_cli
 from .utils import append_job_log, atomic_write_json, clear_files, job_operation_lock, require_command, sha256_file, sha256_text
+from .durable_io import cleanup_stale_partials, replace_with_retry, unique_partial_path
 
 ProgressCallback = Callable[[dict], None]
 
@@ -169,12 +170,12 @@ def audition_sample(*, voice: str, rate: str = '+0%', pitch: str = '+0Hz', volum
     output_dir.mkdir(parents=True, exist_ok=True)
     safe_voice = ''.join(char for char in voice if char.isalnum() or char in '-_')
     final = output_dir / f'audition-{safe_voice}.mp3'
-    partial = output_dir / f'audition-{safe_voice}.partial.mp3'
-    partial.unlink(missing_ok=True)
+    partial = unique_partial_path(final, before_suffix=True)
+    cleanup_stale_partials(final)
     sample = '这是语音试听。价值投资的核心，是以合理的价格买入优秀的公司，并长期持有。'
     get_tts_provider(provider_id).synthesize(sample, partial, voice=voice, rate=rate, pitch=pitch, volume=volume)
     validator(partial)
-    os.replace(partial, final)
+    replace_with_retry(partial, final)
     return final
 
 
@@ -239,7 +240,8 @@ def _synthesize_parts_unlocked(
         index = int(item['index'])
         text_path = job.parts_text / item['file']
         audio_path = job.parts_audio / f'part-{index:04d}.mp3'
-        partial = audio_path.with_name(audio_path.stem + '.partial.mp3')
+        cleanup_stale_partials(audio_path)
+        partial = unique_partial_path(audio_path, before_suffix=True)
         checkpoint_execution(job, manifest, last_step='part-started', current_part=index, current_part_state='running')
         text = text_path.read_text(encoding='utf-8')
         text_chars = len(text)
@@ -275,7 +277,7 @@ def _synthesize_parts_unlocked(
                     asyncio.run(maybe)
                 _emit(progress, index=index, state='validating', estimated_percent=95, text_chars=text_chars)
                 metadata = validator(partial)
-                os.replace(partial, audio_path)
+                replace_with_retry(partial, audio_path)
                 _write_audio_sidecar(audio_path, text_sha256=item['sha256'], signature=signature, metadata=metadata, controls=controls)
                 completed[str(index)] = {'text_sha256': item['sha256'], 'signature': signature, **metadata}
                 failures.pop(str(index), None)
@@ -390,14 +392,14 @@ def generate_resume_voice_check(
         folder = job.work / 'resume_voice_check'
         folder.mkdir(parents=True, exist_ok=True)
         candidate = folder / 'candidate-part-0001.mp3'
-        partial = folder / 'candidate-part-0001.partial.mp3'
-        partial.unlink(missing_ok=True)
+        cleanup_stale_partials(candidate)
+        partial = unique_partial_path(candidate, before_suffix=True)
         save_func = save_func or get_tts_provider(provider_id).synthesize
         maybe = save_func((job.parts_text / first['file']).read_text(encoding='utf-8'), partial, voice=voice, rate=rate, pitch=pitch, volume=volume)
         if asyncio.iscoroutine(maybe):
             asyncio.run(maybe)
         candidate_metadata = validator(partial)
-        os.replace(partial, candidate)
+        replace_with_retry(partial, candidate)
         append_job_log(job, 'resume-voice-check-generated', signature=signature, preserved_part_one=str(existing), candidate_part_one=str(candidate))
         return {
             'existing_part_one': str(existing),
@@ -480,12 +482,12 @@ def merge_parts(job: JobPaths, *, output_name: str | None = None, validator: Cal
         concat_list.write_text(''.join(f"file '{path.resolve().as_posix()}'\n" for path in expected), encoding='utf-8', newline='\n')
         output = job.export / (output_name or f"{manifest['title']}.mp3")
         output.parent.mkdir(parents=True, exist_ok=True)
-        partial = output.with_name(output.stem + '.partial' + output.suffix)
-        partial.unlink(missing_ok=True)
+        cleanup_stale_partials(output)
+        partial = unique_partial_path(output, before_suffix=True)
         try:
             run_hidden_cli([ffmpeg, '-hide_banner', '-loglevel', 'error', '-y', '-f', 'concat', '-safe', '0', '-i', str(concat_list), '-c', 'copy', str(partial)], check=True)
             merged_metadata = validate_mp3(partial)
-            os.replace(partial, output)
+            replace_with_retry(partial, output)
         except Exception as exc:
             partial.unlink(missing_ok=True)
             append_job_log(job, 'merge-failed', error=f'{type(exc).__name__}: {exc}')

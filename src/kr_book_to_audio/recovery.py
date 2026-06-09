@@ -10,7 +10,7 @@ from .utils import append_job_log, process_is_alive, recover_stale_lock
 
 
 def detect_interrupted_job(job: JobPaths, *, process_checker: Callable[[int], bool] = process_is_alive) -> bool:
-    if not job.manifest.exists():
+    if not job.manifest.exists() and not job.state_db.exists():
         return False
     manifest = load_manifest(job)
     execution = manifest.get('execution', {})
@@ -49,8 +49,10 @@ def scan_and_recover_jobs(work_root: Path, *, process_checker: Callable[[int], b
     if not work_root.exists():
         rebuild_history(work_root)
         return reports
-    for manifest_path in work_root.glob('*/_work/job_manifest.json'):
-        job = JobPaths.from_root(manifest_path.parent.parent)
+    roots = {path.parent.parent for path in work_root.glob('*/_work/job_manifest.json')}
+    roots.update(path.parent.parent.parent for path in work_root.glob('*/_work/state/job_state.sqlite3'))
+    for root in sorted(roots):
+        job = JobPaths.from_root(root)
         try:
             if detect_interrupted_job(job, process_checker=process_checker):
                 reports.append({'job_root': str(job.root), 'recovered': True})

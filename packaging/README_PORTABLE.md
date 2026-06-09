@@ -28,3 +28,7 @@ After the final validated Part, the app materializes verified deliverables benea
 ## Silent child-process policy
 
 Console-style external tools launch through the governed hidden-window adapter on Windows. Explorer, cleaned-text opening and preview playback remain visible user actions.
+
+## v2.3.0 durable-state note
+
+Each task owns a local SQLite state database under `_work\state`. The portable application migrates legacy JSON-only jobs automatically and preserves readable snapshots for debugging.

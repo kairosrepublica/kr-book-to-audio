@@ -6,7 +6,7 @@ class ManifestMigrationTests(unittest.TestCase):
     def test_legacy_prepare_options_are_retired_and_schema_is_upgraded(self):
         payload = {'schema_version': 1, 'options': {'strip_dates': True, 'strip_datetime_tags': True, 'convert_config': 't2s', 't2s': True}}
         migrated = ensure_manifest_defaults(payload)
-        self.assertEqual(migrated['schema_version'], 3)
+        self.assertEqual(migrated['schema_version'], 4)
         self.assertNotIn('strip_dates', migrated['options'])
         self.assertNotIn('strip_datetime_tags', migrated['options'])
         self.assertNotIn('convert_config', migrated['options'])

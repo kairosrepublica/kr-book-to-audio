@@ -5,9 +5,9 @@ import json
 import os
 import tempfile
 from .models import JobPaths
-from .utils import atomic_write_json
+from .job_state import initialize as initialize_job_state, load as load_job_state, save as save_job_state, state_exists
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def _utc_now() -> str:
@@ -16,7 +16,7 @@ def _utc_now() -> str:
 
 def ensure_manifest_defaults(payload: dict) -> dict:
     """Upgrade additive fields while retiring obsolete text-conversion flags."""
-    if payload.get('schema_version') in {1, 2}:
+    if payload.get('schema_version') in {1, 2, 3}:
         old_schema = payload.get('schema_version')
         payload['schema_version'] = SCHEMA_VERSION
         payload.setdefault('migration', {}).setdefault('upgraded_from_schema', old_schema)
@@ -86,13 +86,22 @@ def new_manifest(*, source: Path, source_sha256: str, title: str, options: dict)
     })
 
 
-def load_manifest(job: JobPaths) -> dict:
+def _read_legacy_snapshot(job: JobPaths) -> dict:
     if not job.manifest.exists():
         raise FileNotFoundError(f'Job manifest not found: {job.manifest}')
     payload = json.loads(job.manifest.read_text(encoding='utf-8'))
-    if payload.get('schema_version') not in {1, 2, SCHEMA_VERSION}:
+    if payload.get('schema_version') not in {None, 1, 2, 3, SCHEMA_VERSION}:
         raise RuntimeError('Unsupported job manifest schema version')
     return ensure_manifest_defaults(payload)
+
+
+def load_manifest(job: JobPaths) -> dict:
+    if state_exists(job):
+        payload = load_job_state(job)
+        return ensure_manifest_defaults(payload)
+    payload = _read_legacy_snapshot(job)
+    initialized = initialize_job_state(job, payload, preserve_legacy=True)
+    return ensure_manifest_defaults(initialized)
 
 
 def _history_sync_allowed(job: JobPaths) -> bool:
@@ -111,7 +120,11 @@ def _history_sync_allowed(job: JobPaths) -> bool:
 def save_manifest(job: JobPaths, manifest: dict) -> None:
     manifest = ensure_manifest_defaults(manifest)
     manifest['updated_utc'] = _utc_now()
-    atomic_write_json(job.manifest, manifest)
+    if not state_exists(job):
+        initialize_job_state(job, manifest, preserve_legacy=True)
+        # load the authoritative revision created by initialization.
+        manifest['_state_revision'] = load_job_state(job).get('_state_revision', 0)
+    save_job_state(job, manifest)
     if not _history_sync_allowed(job):
         return
     try:

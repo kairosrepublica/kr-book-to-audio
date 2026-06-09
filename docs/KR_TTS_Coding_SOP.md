@@ -181,3 +181,15 @@ Footer
 ```
 
 Button state is derived from authoritative manifest state, not click history. Manual export verification is not a normal user step. Manual folder recovery belongs only under Advanced recovery.
+
+## Istanbul Release v2.3.0 state discipline
+
+```text
+SQLite is authoritative for resumable mutable state.
+JSON is a derived readable snapshot.
+MP3 files remain filesystem artifacts with SHA-256 receipts.
+Never silently overwrite a newer state revision.
+Never delete legacy evidence during migration.
+```
+
+Export verification should reuse trusted receipts and avoid redundant ffprobe launches while preserving hash, count, continuity and readability guarantees.

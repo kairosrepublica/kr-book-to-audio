@@ -11,6 +11,26 @@ Copyright © Kent Reis & Kairos República
 
 It converts text-layer PDF, EPUB, MOBI or PalmDOC-compatible AZW or PRC, DOCX, TXT and Markdown sources into independently recoverable MP3 parts and an optional merged MP3 audiobook.
 
+## Istanbul Release v2.3.0
+
+This reliability architecture release replaces the single JSON job-state authority with a per-job SQLite transaction engine and adds responsive desktop behavior:
+
+- authoritative resumable state now lives in `<job>\_work\state\job_state.sqlite3`;
+- `job_manifest.json` remains as a human-readable derived snapshot and legacy compatibility surface;
+- legacy JSON-only jobs migrate automatically while preserving `job_manifest.legacy.json`;
+- SQLite uses WAL journaling, `synchronous=FULL`, bounded lock waiting, monotonic state revisions and a single-writer lease;
+- stale state revisions are rejected instead of silently overwriting newer progress;
+- product-owned file replacement uses unique sibling partial files, flush, `fsync`, serialized same-path writes and bounded retry;
+- export finalization reuses verified MP3 receipts and avoids redundant `ffprobe` launches while preserving hash and readability guarantees;
+- OCR actions become informational no-ops when a usable native text layer already exists;
+- the initial desktop height adapts to the current screen, using 1900 px on the Owner 2160p display and a vertically scrollable compact layout on smaller screens.
+
+## Historical interface evidence
+
+The following screenshot records the real Owner-machine Istanbul Release v2.1.0 interface immediately before the SQLite durable-state and responsive-layout upgrade:
+
+![KR Book To Audio Istanbul Release v2.1.0 historical GUI](docs/images/kr_book_to_audio_gui_istanbul_release_v2_1_0.png)
+
 ## Istanbul Release v2.1.0
 
 This workflow and desktop-process reliability release removes visible child-console flashes and makes the GUI read like one sequential operating procedure:
@@ -214,6 +234,9 @@ Application-level recent-job index:
 %LOCALAPPDATA%\KRBookToAudio\execution_history.json
 
 Per-job authoritative state:
+<job>\_work\state\job_state.sqlite3
+
+Human-readable derived snapshot:
 <job>\_work\job_manifest.json
 ```
 

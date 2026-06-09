@@ -27,9 +27,17 @@ def _entry_manifest_path(entry: dict[str, Any]) -> Path | None:
     return Path(raw) / '_work' / 'job_manifest.json'
 
 
+def _entry_state_db_path(entry: dict[str, Any]) -> Path | None:
+    raw = str(entry.get('job_root') or '').strip()
+    if not raw:
+        return None
+    return Path(raw) / '_work' / 'state' / 'job_state.sqlite3'
+
+
 def _entry_is_valid(entry: dict[str, Any]) -> bool:
     manifest = _entry_manifest_path(entry)
-    return bool(manifest and manifest.is_file())
+    state_db = _entry_state_db_path(entry)
+    return bool((manifest and manifest.is_file()) or (state_db and state_db.is_file()))
 
 
 def _parse_utc(value: str | None) -> datetime | None:
@@ -272,16 +280,19 @@ def rebuild_history(work_root: Path | None = None, path: Path | None = None) -> 
     existing = {item.get('job_id'): item for item in read_history(path).get('jobs', []) if _entry_is_valid(item)}
     rebuilt: list[dict[str, Any]] = []
     if work_root.exists():
-        for manifest_path in work_root.glob('*/_work/job_manifest.json'):
+        roots = {path.parent.parent for path in work_root.glob('*/_work/job_manifest.json')}
+        roots.update(path.parent.parent.parent for path in work_root.glob('*/_work/state/job_state.sqlite3'))
+        from .manifest import load_manifest
+        for root in sorted(roots):
             try:
-                payload = json.loads(manifest_path.read_text(encoding='utf-8'))
-                job = JobPaths.from_root(manifest_path.parent.parent)
+                job = JobPaths.from_root(root)
+                payload = load_manifest(job)
                 entry = history_entry_from_manifest(job, payload)
                 previous = existing.get(entry['job_id'])
                 if previous and previous.get('hidden'):
                     entry['hidden'] = True
                 rebuilt.append(entry)
-            except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            except (OSError, ValueError, TypeError, json.JSONDecodeError, RuntimeError):
                 continue
     merged = dict(existing)
     for entry in rebuilt:

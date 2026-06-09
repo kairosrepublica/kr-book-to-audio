@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import signal
+from .durable_io import write_json as durable_write_json, write_text as durable_write_text
 
 if TYPE_CHECKING:
     from .models import JobPaths
@@ -34,14 +35,11 @@ def sanitize_filename(name: str | None, fallback: str = 'book') -> str:
 
 
 def atomic_write_text(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_name(path.name + '.partial')
-    temp.write_text(text, encoding='utf-8', newline='\n')
-    os.replace(temp, path)
+    durable_write_text(Path(path), text)
 
 
 def atomic_write_json(path: Path, payload: object) -> None:
-    atomic_write_text(path, json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + '\n')
+    durable_write_json(Path(path), payload)
 
 
 def clear_files(directory: Path, pattern: str) -> None:
@@ -127,7 +125,7 @@ def append_job_log(job: 'JobPaths', event: str, **fields: object) -> None:
 
 @contextmanager
 def job_operation_lock(job: 'JobPaths', operation: str) -> Iterator[None]:
-    """Reject concurrent mutations of one job directory across GUI and CLI processes."""
+    """Reject concurrent mutations through a compatibility file lock and SQLite lease."""
     job.work.mkdir(parents=True, exist_ok=True)
     lock_path = job.work / '.operation.lock'
     if lock_path.exists():
@@ -141,11 +139,25 @@ def job_operation_lock(job: 'JobPaths', operation: str) -> Iterator[None]:
             f'Job is busy or a prior run ended unexpectedly: {lock_path}. '
             'Close other KR Book To Audio processes. Remove the lock file only after confirming no operation is running.'
         ) from exc
+    lease_token: str | None = None
     try:
         with os.fdopen(descriptor, 'w', encoding='utf-8', newline='\n') as handle:
             handle.write(json.dumps({'operation': operation, 'pid': os.getpid(), 'time': datetime.now().isoformat(timespec='seconds')}) + '\n')
+            handle.flush()
+            os.fsync(handle.fileno())
+        if getattr(job, 'manifest', None) is not None and (job.manifest.exists() or getattr(job, 'state_db', Path()).exists()):
+            from .manifest import load_manifest
+            from .job_state import acquire_lease
+            load_manifest(job)  # migrate legacy JSON before acquiring the authoritative lease
+            lease_token = acquire_lease(job, operation=operation, pid=os.getpid(), process_checker=process_is_alive)
         yield
     finally:
+        if lease_token:
+            try:
+                from .job_state import release_lease
+                release_lease(job, lease_token)
+            except Exception:
+                pass
         lock_path.unlink(missing_ok=True)
 
 

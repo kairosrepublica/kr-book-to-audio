@@ -176,12 +176,41 @@ def add_help(parent: tk.Widget, text: str, **grid_options) -> ttk.Label:
     return label
 
 
+
+
+def compute_window_geometry(screen_width: int, screen_height: int, saved: str | None = None) -> tuple[str, str]:
+    """Return a visible initial geometry and responsive layout mode."""
+    safe_w = max(900, int(screen_width) - 80)
+    safe_h = max(640, int(screen_height) - 120)
+    if screen_height >= 1800:
+        mode = 'expanded'
+        width = min(1700, safe_w)
+        height = min(1900, safe_h)
+    elif screen_height >= 1000:
+        mode = 'medium'
+        width = min(1500, safe_w)
+        height = min(1120, safe_h)
+    else:
+        mode = 'compact'
+        width = min(1280, safe_w)
+        height = safe_h
+    if saved:
+        import re
+        match = re.match(r'^(\d+)x(\d+)', str(saved))
+        if match:
+            width = min(max(900, int(match.group(1))), safe_w)
+            height = min(max(640, int(match.group(2))), safe_h)
+    return f'{width}x{height}', mode
+
+
 class App:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title('KR Book To Audio')
         apply_window_icon(self.root)
-        self.root.geometry('1320x1060')
+        cfg = load_config()
+        geometry, self.layout_mode = compute_window_geometry(self.root.winfo_screenwidth(), self.root.winfo_screenheight(), cfg.get('window_geometry'))
+        self.root.geometry(geometry)
         self.events: queue.Queue[tuple] = queue.Queue()
         self.job: JobPaths | None = None
         self.busy = BusyGuard()
@@ -198,7 +227,6 @@ class App:
         self.runtime_seconds_per_char: list[float] = []
         self.logged_progress_buckets: dict[int, int] = {}
         self.ocr_analysis: OCRAnalysis | None = None
-        cfg = load_config()
         self.source = tk.StringVar()
         self.source_folder = str(cfg.get('source_folder', Path.home()))
         self.work_root = tk.StringVar(value=cfg.get('work_root', str(local_work_root())))
@@ -220,6 +248,7 @@ class App:
         self.advanced_ocr_visible = False
         self.ocr_override = tk.StringVar(value='Use recommended engine')
         self._build()
+        self.root.protocol('WM_DELETE_WINDOW', self._close)
         self._apply_voice_filter()
         for var in (self.voice, self.rate, self.pitch, self.volume, self.tts_engine):
             var.trace_add('write', self._voice_controls_changed)
@@ -230,9 +259,31 @@ class App:
         self.root.after(250, self._startup_recovery)
         self._refresh_voices(background=True)
 
+
+    def _close(self) -> None:
+        try:
+            cfg = load_config(); cfg['window_geometry'] = self.root.geometry(); save_config(cfg)
+        finally:
+            self.root.destroy()
+
+    def _update_ocr_action_state(self) -> None:
+        if not hasattr(self, 'ocr_run_button'):
+            return
+        disabled = bool(self.ocr_analysis and (self.ocr_analysis.status in {'not-needed', 'not-applicable'} or self.ocr_analysis.recommended_provider in {None, 'native-text'}))
+        state = 'disabled' if disabled or not self.ui_actions_enabled else 'normal'
+        self.ocr_run_button.config(state=state)
+        self.ocr_preview_button.config(state=state)
+
     def _build(self) -> None:
-        frame = ttk.Frame(self.root, padding=12)
-        frame.pack(fill='both', expand=True)
+        self.canvas = tk.Canvas(self.root, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(self.root, orient='vertical', command=self.canvas.yview)
+        self.canvas.configure(yscrollcommand=scrollbar.set)
+        self.canvas.pack(side='left', fill='both', expand=True)
+        scrollbar.pack(side='right', fill='y')
+        frame = ttk.Frame(self.canvas, padding=12)
+        self.canvas_window = self.canvas.create_window((0, 0), window=frame, anchor='nw')
+        frame.bind('<Configure>', lambda _event: self.canvas.configure(scrollregion=self.canvas.bbox('all')))
+        self.canvas.bind('<Configure>', lambda event: self.canvas.itemconfigure(self.canvas_window, width=event.width))
         rows = [
             ('Book', self.source, self._browse_source, self._open_source, self._set_source_folder_default, 'Select one source book. The default action stores its containing folder for the next file picker.'),
             ('Local working root', self.work_root, self._browse_work, self._open_work_root, self._set_work_default, 'Stores temporary processing files, task state and audio parts. Prefer a local non-cloud folder to avoid file-locking conflicts.'),
@@ -298,6 +349,8 @@ class App:
             btn = ttk.Button(ocr, text=label, command=method)
             btn.grid(row=2, column=col, sticky='w', padx=6, pady=(0, 5))
             self.action_buttons.append(btn)
+            if label == 'Preview OCR sample': self.ocr_preview_button = btn
+            if label == 'Run recommended OCR': self.ocr_run_button = btn
         add_help(ocr, 'The advisor decides whether OCR is applicable or needed, discovers local engines and recommends a provider.', row=2, column=4, sticky='w')
         self.ocr_advanced = ttk.Frame(ocr)
         ttk.Label(self.ocr_advanced, text='OCR engine override').pack(side='left', padx=(6, 3))
@@ -355,9 +408,11 @@ class App:
         log_frame = ttk.Labelframe(body, text='Run log')
         parts_frame = ttk.Labelframe(body, text='Part status')
         body.add(log_frame, weight=3); body.add(parts_frame, weight=2)
-        self.log = tk.Text(log_frame, height=20, wrap='word')
+        log_height = 24 if self.layout_mode == 'expanded' else (16 if self.layout_mode == 'medium' else 10)
+        part_height = 20 if self.layout_mode == 'expanded' else (15 if self.layout_mode == 'medium' else 9)
+        self.log = tk.Text(log_frame, height=log_height, wrap='word')
         self.log.pack(fill='both', expand=True)
-        self.parts = ttk.Treeview(parts_frame, columns=('part', 'state'), show='headings', height=17)
+        self.parts = ttk.Treeview(parts_frame, columns=('part', 'state'), show='headings', height=part_height)
         self.parts.heading('part', text='Part'); self.parts.heading('state', text='State')
         self.parts.column('part', width=80, anchor='center'); self.parts.column('state', width=210, anchor='w')
         self.parts.tag_configure('running', background='#d9f2d9', foreground='#006400')
@@ -543,6 +598,7 @@ class App:
         state = 'normal' if enabled else 'disabled'
         for button in self.action_buttons:
             button.config(state=state)
+        self._update_ocr_action_state()
         self._render_workflow_state()
 
     def _process_trace_event(self, payload: dict[str, object]) -> None:
@@ -820,6 +876,7 @@ class App:
             self.ocr_reason.config(text=analysis.reason)
             available = ['Use recommended engine'] + [pid for pid, data in analysis.capabilities.items() if pid in OCR_PROVIDER_SPECS and data.get('available')]
             self.ocr_override_combo['values'] = available
+            self._update_ocr_action_state()
         self._run('Analyze OCR requirements', lambda: analyze_source(Path(value)), done)
 
     def toggle_ocr_advanced(self) -> None:
@@ -841,7 +898,12 @@ class App:
     def run_ocr(self) -> None:
         if not self.ocr_analysis:
             messagebox.showerror('OCR not analyzed', 'Run Analyze source first.'); return
-        provider = self._selected_ocr_provider(); output_dir = Path(self.work_root.get()) / '_ocr_outputs'
+        provider = self._selected_ocr_provider()
+        if self.ocr_analysis.status in {'not-needed', 'not-applicable'} or provider in {None, 'native-text'}:
+            messagebox.showinfo('OCR not required', 'OCR is not required for this source. The usable native text layer will be preserved.')
+            self._log_event('OCR not required. Native text layer preserved.')
+            return
+        output_dir = Path(self.work_root.get()) / '_ocr_outputs'
         def done(path: Path):
             self.source.set(str(path)); self.ocr_status.config(text='Status: OCR output ready · select Prepare text')
             self.ocr_reason.config(text=f'OCR output selected as the new source: {path}')

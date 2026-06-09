@@ -2,16 +2,15 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
-import os
-import shutil
 
 from .manifest import load_manifest, save_manifest
 from .models import JobPaths
 from .utils import append_job_log, atomic_write_json, sha256_file
+from .durable_io import copy_verified, cleanup_stale_partials, replace_with_retry, unique_partial_path
 
 Validator = Callable[[Path], dict]
 ProgressCallback = Callable[[dict], None]
-EXPORT_SCHEMA_VERSION = 1
+EXPORT_SCHEMA_VERSION = 2
 
 
 def _utc_now() -> str:
@@ -49,12 +48,30 @@ def _expected_records(manifest: dict) -> list[dict]:
     return records
 
 
-def _internal_verified_records(job: JobPaths, manifest: dict, validator: Validator) -> list[dict]:
+def _receipt_metadata(path: Path, receipt: dict) -> dict | None:
+    if not path.exists() or path.stat().st_size <= 1024:
+        return None
+    expected_sha = str(receipt.get('sha256') or '')
+    if not expected_sha or sha256_file(path) != expected_sha:
+        return None
+    duration = receipt.get('duration_seconds')
+    if not isinstance(duration, (int, float)) or float(duration) <= 0:
+        return None
+    return {
+        'bytes': int(path.stat().st_size),
+        'duration_seconds': float(duration),
+        'sha256': expected_sha,
+        'verification_receipt': 'reused',
+    }
+
+
+def _internal_verified_records(job: JobPaths, manifest: dict, validator: Validator) -> tuple[list[dict], int]:
     signature = manifest.get('audio', {}).get('signature')
     if not signature:
         raise RuntimeError('No approved audio configuration exists for export.')
     completed = manifest.get('audio', {}).get('completed', {})
     verified: list[dict] = []
+    reused_receipts = 0
     for item in _expected_records(manifest):
         index = int(item['index'])
         key = str(index)
@@ -66,9 +83,13 @@ def _internal_verified_records(job: JobPaths, manifest: dict, validator: Validat
             raise RuntimeError(f'Audio text checkpoint is stale: {source.name}')
         if saved.get('signature') != signature:
             raise RuntimeError(f'Audio signature checkpoint is stale: {source.name}')
-        metadata = validator(source)
-        if metadata.get('sha256') != saved.get('sha256'):
-            raise RuntimeError(f'Internal audio changed after validation: {source.name}')
+        metadata = _receipt_metadata(source, saved)
+        if metadata is None:
+            metadata = validator(source)
+            if metadata.get('sha256') != saved.get('sha256'):
+                raise RuntimeError(f'Internal audio changed after validation: {source.name}')
+        else:
+            reused_receipts += 1
         verified.append({
             'index': index,
             'file': source.name,
@@ -77,45 +98,63 @@ def _internal_verified_records(job: JobPaths, manifest: dict, validator: Validat
             'signature': signature,
             **metadata,
         })
-    return verified
+    return verified, reused_receipts
+
+
 
 
 def _atomic_copy(source: Path, destination: Path, validator: Validator) -> dict:
+    """Compatibility helper: durable copy plus explicit validation for negative fixtures."""
+    source = Path(source); destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    partial = destination.with_name(destination.stem + '.partial' + destination.suffix)
-    partial.unlink(missing_ok=True)
+    cleanup_stale_partials(destination)
+    partial = unique_partial_path(destination, before_suffix=True)
     try:
         with source.open('rb') as src, partial.open('wb') as dst:
+            import shutil, os
             shutil.copyfileobj(src, dst, length=1024 * 1024)
-            dst.flush()
-            os.fsync(dst.fileno())
+            dst.flush(); os.fsync(dst.fileno())
         metadata = validator(partial)
         if metadata.get('sha256') != sha256_file(source):
             raise RuntimeError(f'Atomic export copy hash mismatch: {destination.name}')
-        os.replace(partial, destination)
+        replace_with_retry(partial, destination)
         return metadata
     except Exception:
         partial.unlink(missing_ok=True)
         raise
 
+def _copy_with_receipt(source: Path, destination: Path, receipt: dict) -> dict:
+    copied_sha = copy_verified(source, destination, expected_sha256=str(receipt['sha256']))
+    if copied_sha != receipt.get('sha256'):
+        raise RuntimeError(f'Exported MP3 SHA-256 mismatch after durable copy: {destination.name}')
+    return {
+        'bytes': int(destination.stat().st_size),
+        'duration_seconds': float(receipt['duration_seconds']),
+        'sha256': copied_sha,
+        'verification_receipt': 'reused-after-copy',
+    }
 
-def _merged_record(job: JobPaths, manifest: dict, validator: Validator, *, require_merged: bool) -> dict | None:
+
+def _merged_record(job: JobPaths, manifest: dict, validator: Validator, *, require_merged: bool) -> tuple[dict | None, int]:
     merge = manifest.get('merge', {})
     raw = merge.get('output_runtime_only')
     if not raw:
         if require_merged:
             raise RuntimeError('Merged MP3 is required but has not been created.')
-        return None
+        return None, 0
     path = Path(raw)
     if not path.exists():
         if require_merged:
             raise RuntimeError(f'Merged MP3 is missing: {path.name}')
-        return None
-    metadata = validator(path)
+        return None, 0
+    metadata = _receipt_metadata(path, merge)
+    reused = 1 if metadata is not None else 0
+    if metadata is None:
+        metadata = validator(path)
     saved_sha = merge.get('sha256')
     if saved_sha and saved_sha != metadata.get('sha256'):
         raise RuntimeError(f'Merged MP3 changed after validation: {path.name}')
-    return {'file': path.name, 'path_runtime_only': str(path), **metadata}
+    return {'file': path.name, 'path_runtime_only': str(path), **metadata}, reused
 
 
 def _verify_export_impl(
@@ -126,26 +165,31 @@ def _verify_export_impl(
     write_manifest: bool = True,
     progress: ProgressCallback | None = None,
 ) -> dict:
-    """Verify the externally deliverable export tree and optionally persist evidence."""
+    """Verify deliverables with receipt reuse while preserving hash and readability guarantees."""
     validator = _validator(validator)
     manifest = load_manifest(job)
-    internal = _internal_verified_records(job, manifest, validator)
+    internal, internal_receipts = _internal_verified_records(job, manifest, validator)
     expected_names = [item['file'] for item in internal]
     parts_dir = export_parts_dir(job)
     actual_names = sorted(path.name for path in parts_dir.glob('part-*.mp3')) if parts_dir.exists() else []
     if actual_names != expected_names:
         raise RuntimeError(f'Exported Part set mismatch: expected={expected_names!r} actual={actual_names!r}')
     exported: list[dict] = []
+    exported_receipts = 0
     _emit(progress, state='verification-started', total=len(internal))
     append_job_log(job, 'export-verification-started', expected_parts=len(internal))
     for position, item in enumerate(internal, 1):
         path = parts_dir / item['file']
-        metadata = validator(path)
+        metadata = _receipt_metadata(path, item)
+        if metadata is None:
+            metadata = validator(path)
+        else:
+            exported_receipts += 1
         if metadata.get('sha256') != item.get('sha256'):
             raise RuntimeError(f'Exported MP3 SHA-256 mismatch: {path.name}')
         exported.append({'index': item['index'], 'file': item['file'], **metadata})
         _emit(progress, state='verification-part', index=position, total=len(internal), file=item['file'])
-    merged = _merged_record(job, manifest, validator, require_merged=require_merged)
+    merged, merged_receipts = _merged_record(job, manifest, validator, require_merged=require_merged)
     report = {
         'schema_version': EXPORT_SCHEMA_VERSION,
         'status': 'verified',
@@ -154,6 +198,11 @@ def _verify_export_impl(
         'title': manifest.get('title'),
         'expected_parts': len(internal),
         'exported_parts': len(exported),
+        'receipt_reuse': {
+            'internal_parts': internal_receipts,
+            'exported_parts': exported_receipts,
+            'merged': merged_receipts,
+        },
         'parts': exported,
         'merged': merged,
     }
@@ -167,10 +216,11 @@ def _verify_export_impl(
             'expected_parts': len(internal),
             'exported_parts': len(exported),
             'merged_present': bool(merged),
+            'receipt_reuse': report['receipt_reuse'],
         }
         save_manifest(job, manifest)
-    append_job_log(job, 'export-verification-pass', exported_parts=len(exported), merged_present=bool(merged))
-    _emit(progress, state='verification-pass', total=len(exported), merged_present=bool(merged))
+    append_job_log(job, 'export-verification-pass', exported_parts=len(exported), merged_present=bool(merged), receipt_reuse=report['receipt_reuse'])
+    _emit(progress, state='verification-pass', total=len(exported), merged_present=bool(merged), receipt_reuse=report['receipt_reuse'])
     return report
 
 
@@ -183,13 +233,7 @@ def verify_export(
     progress: ProgressCallback | None = None,
 ) -> dict:
     try:
-        return _verify_export_impl(
-            job,
-            validator=validator,
-            require_merged=require_merged,
-            write_manifest=write_manifest,
-            progress=progress,
-        )
+        return _verify_export_impl(job, validator=validator, require_merged=require_merged, write_manifest=write_manifest, progress=progress)
     except Exception as exc:
         message = f'{type(exc).__name__}: {exc}'
         append_job_log(job, 'export-verification-failed', error=message)
@@ -203,38 +247,33 @@ def _finalize_export_impl(
     validator: Validator | None = None,
     progress: ProgressCallback | None = None,
 ) -> dict:
-    """Materialize a verified public export tree from authoritative internal checkpoints."""
+    """Materialize a verified export tree with a bounded ffprobe budget."""
     validator = _validator(validator)
     manifest = load_manifest(job)
-    internal = _internal_verified_records(job, manifest, validator)
+    internal, receipt_reuse = _internal_verified_records(job, manifest, validator)
     parts_dir = export_parts_dir(job)
     parts_dir.mkdir(parents=True, exist_ok=True)
     expected_names = {item['file'] for item in internal}
-    append_job_log(job, 'export-finalization-started', expected_parts=len(internal), destination=str(parts_dir))
+    append_job_log(job, 'export-finalization-started', expected_parts=len(internal), destination=str(parts_dir), internal_receipts_reused=receipt_reuse)
     _emit(progress, state='finalization-started', total=len(internal), destination=str(parts_dir))
     for position, item in enumerate(internal, 1):
         destination = parts_dir / item['file']
         source = Path(item['source_runtime_only'])
-        if destination.exists():
-            try:
-                metadata = validator(destination)
-                if metadata.get('sha256') == item.get('sha256'):
-                    _emit(progress, state='copy-reused', index=position, total=len(internal), file=item['file'])
-                    continue
-            except Exception:
-                pass
-            destination.unlink(missing_ok=True)
+        metadata = _receipt_metadata(destination, item) if destination.exists() else None
+        if metadata is not None:
+            _emit(progress, state='copy-reused', index=position, total=len(internal), file=item['file'])
+            continue
         _emit(progress, state='copying-part', index=position, total=len(internal), file=item['file'])
         append_job_log(job, 'export-copying-part', index=position, total=len(internal), file=item['file'])
-        copied = _atomic_copy(source, destination, validator)
+        copied = _copy_with_receipt(source, destination, item)
         if copied.get('sha256') != item.get('sha256'):
-            raise RuntimeError(f'Exported MP3 SHA-256 mismatch after atomic copy: {item["file"]}')
+            raise RuntimeError(f'Exported MP3 SHA-256 mismatch after durable copy: {item["file"]}')
     for path in parts_dir.glob('part-*.mp3'):
         if path.name not in expected_names:
             path.unlink(missing_ok=True)
     report = verify_export(job, validator=validator, write_manifest=True, progress=progress)
-    append_job_log(job, 'export-finalization-completed', exported_parts=report['exported_parts'])
-    _emit(progress, state='finalization-completed', total=report['exported_parts'])
+    append_job_log(job, 'export-finalization-completed', exported_parts=report['exported_parts'], receipt_reuse=report['receipt_reuse'])
+    _emit(progress, state='finalization-completed', total=report['exported_parts'], receipt_reuse=report['receipt_reuse'])
     return report
 
 
@@ -259,8 +298,4 @@ def export_is_verified(job: JobPaths) -> bool:
     except Exception:
         return False
     record = manifest.get('export', {})
-    return bool(
-        record.get('status') == 'verified'
-        and export_manifest_path(job).exists()
-        and export_parts_dir(job).exists()
-    )
+    return bool(record.get('status') == 'verified' and export_manifest_path(job).exists() and export_parts_dir(job).exists())

@@ -83,13 +83,17 @@ class ExportFinalizationTests(unittest.TestCase):
             job = make_prepared_job(Path(td))
             approve_fake_audio(job)
             calls = {'count': 0}
-            def fail_on_export(path: Path):
+            def fail_on_internal(path: Path):
                 calls['count'] += 1
-                if export_parts_dir(job) in path.parents:
-                    raise RuntimeError('export validator rejection')
+                if job.parts_audio in path.parents:
+                    raise RuntimeError('internal validator rejection')
                 return fake_validate(path)
-            with self.assertRaisesRegex(RuntimeError, 'export validator rejection'):
-                finalize_export(job, validator=fail_on_export)
+            # Remove one trusted receipt so finalization must invoke the validator.
+            manifest = load_manifest(job)
+            manifest['audio']['completed']['1'].pop('duration_seconds', None)
+            save_manifest(job, manifest)
+            with self.assertRaisesRegex(RuntimeError, 'internal validator rejection'):
+                finalize_export(job, validator=fail_on_internal)
             self.assertFalse(export_manifest_path(job).exists())
 
     def test_retry_style_second_full_run_finalizes_after_missing_part_is_filled(self):
@@ -99,7 +103,7 @@ class ExportFinalizationTests(unittest.TestCase):
             approve_preview(job, voice='voice', validator=fake_validate)
             attempts = {'failed': False}
             def one_failure(text, out, **kwargs):
-                if out.name == 'part-0002.partial.mp3' and not attempts['failed']:
+                if out.name.startswith('part-0002.') and '.partial' in out.name and not attempts['failed']:
                     attempts['failed'] = True
                     raise RuntimeError('deliberate part failure')
                 fake_save(text, out, **kwargs)
