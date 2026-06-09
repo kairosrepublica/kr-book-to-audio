@@ -36,3 +36,6 @@ Each task owns a local SQLite state database under `_work\state`. The portable a
 ## v2.3.1 desktop-shell note
 
 The normal desktop starts at 1200 px wide, enforces a 1150 px minimum width and starts at exactly 1900 px high on displays taller than 1900 px. The Footer remains fixed while the internal workflow viewport supports mouse-wheel and touchpad scrolling.
+## v2.3.2 precision desktop-shell note
+
+The normal desktop starts at 1200 px wide, enforces a 1150 px minimum width and starts at exactly 1870 px high on displays taller than 1870 px. When the actual window height is at least 1870 px, the outer workflow scrollbar is hidden and ordinary outer mouse-wheel or touchpad routing is disabled. Below 1870 px, the scrollbar and ordinary outer scrolling return. Native scrolling inside Run log, Recent jobs, Part status, Listbox and Combobox controls remains preserved.

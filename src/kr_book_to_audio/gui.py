@@ -183,8 +183,8 @@ MIN_WINDOW_WIDTH = 1150
 MIN_WINDOW_HEIGHT = 520
 WINDOW_SAFE_WIDTH_MARGIN = 80
 WINDOW_SAFE_HEIGHT_MARGIN = 120
-LARGE_SCREEN_HEIGHT_THRESHOLD = 1900
-LARGE_WINDOW_HEIGHT = 1900
+LARGE_SCREEN_HEIGHT_THRESHOLD = 1870
+LARGE_WINDOW_HEIGHT = 1870
 
 
 def compute_window_geometry(screen_width: int, screen_height: int, saved: str | None = None) -> tuple[str, str]:
@@ -230,6 +230,11 @@ def wheel_scroll_units(delta: int) -> int:
 def preserves_native_wheel(widget_class: str) -> bool:
     """Return True when an inner widget should retain its native wheel behavior."""
     return str(widget_class) in {'Text', 'Treeview', 'Listbox', 'TCombobox'}
+
+
+def outer_scroll_enabled(window_height: int) -> bool:
+    """Return True only while the outer workflow surface needs scrolling."""
+    return int(window_height) < LARGE_WINDOW_HEIGHT
 
 
 class App:
@@ -310,11 +315,13 @@ class App:
         self.viewport = ttk.Frame(self.shell)
         self.viewport.pack(side='top', fill='both', expand=True)
         self.canvas = tk.Canvas(self.viewport, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(self.viewport, orient='vertical', command=self.canvas.yview)
-        self.canvas.configure(yscrollcommand=scrollbar.set)
+        self.scrollbar = ttk.Scrollbar(self.viewport, orient='vertical', command=self.canvas.yview)
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
         self.canvas.pack(side='left', fill='both', expand=True)
-        scrollbar.pack(side='right', fill='y')
+        self.scrollbar.pack(side='right', fill='y')
         self._bind_mousewheel()
+        self.root.bind('<Configure>', self._on_root_configure, add='+')
+        self.root.after_idle(self._sync_outer_scroll_policy)
         frame = ttk.Frame(self.canvas, padding=12)
         self.canvas_window = self.canvas.create_window((0, 0), window=frame, anchor='nw')
         frame.bind('<Configure>', lambda _event: self.canvas.configure(scrollregion=self.canvas.bbox('all')))
@@ -480,8 +487,26 @@ class App:
         except Exception:
             return ''
 
+    def _on_root_configure(self, event) -> None:
+        if event.widget is self.root:
+            self._sync_outer_scroll_policy()
+
+    def _outer_scroll_enabled(self) -> bool:
+        return outer_scroll_enabled(self.root.winfo_height())
+
+    def _sync_outer_scroll_policy(self) -> None:
+        if not hasattr(self, 'scrollbar'):
+            return
+        if self._outer_scroll_enabled():
+            if not self.scrollbar.winfo_manager():
+                self.scrollbar.pack(side='right', fill='y')
+            return
+        self.canvas.yview_moveto(0.0)
+        if self.scrollbar.winfo_manager():
+            self.scrollbar.pack_forget()
+
     def _scroll_outer_viewport(self, units: int) -> str | None:
-        if not units:
+        if not units or not self._outer_scroll_enabled():
             return None
         self.canvas.yview_scroll(int(units), 'units')
         return 'break'

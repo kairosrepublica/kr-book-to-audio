@@ -1,7 +1,8 @@
 import inspect
 import unittest
+from unittest.mock import Mock
 from kr_book_to_audio import gui
-from kr_book_to_audio.gui import preserves_native_wheel, wheel_scroll_units
+from kr_book_to_audio.gui import outer_scroll_enabled, preserves_native_wheel, wheel_scroll_units
 
 class FixedShellWheelScrollTests(unittest.TestCase):
     def test_footer_is_fixed_outside_scroll_viewport(self):
@@ -40,6 +41,45 @@ class FixedShellWheelScrollTests(unittest.TestCase):
         source = inspect.getsource(gui.App._on_mousewheel)
         self.assertIn('preserves_native_wheel', source)
         self.assertIn('return None', source)
+
+    def test_outer_scroll_boundary_is_exact(self):
+        self.assertTrue(outer_scroll_enabled(1869))
+        self.assertFalse(outer_scroll_enabled(1870))
+        self.assertFalse(outer_scroll_enabled(1871))
+
+    def test_outer_wheel_routing_is_disabled_at_or_above_1870(self):
+        app = object.__new__(gui.App)
+        app.canvas = Mock()
+        app._outer_scroll_enabled = Mock(return_value=False)
+        self.assertIsNone(app._scroll_outer_viewport(1))
+        app.canvas.yview_scroll.assert_not_called()
+
+    def test_outer_wheel_routing_is_enabled_below_1870(self):
+        app = object.__new__(gui.App)
+        app.canvas = Mock()
+        app._outer_scroll_enabled = Mock(return_value=True)
+        self.assertEqual(app._scroll_outer_viewport(1), 'break')
+        app.canvas.yview_scroll.assert_called_once_with(1, 'units')
+
+    def test_scrollbar_policy_hides_and_resets_outer_canvas_at_or_above_1870(self):
+        app = object.__new__(gui.App)
+        app.canvas = Mock()
+        app.scrollbar = Mock()
+        app.scrollbar.winfo_manager.return_value = 'pack'
+        app._outer_scroll_enabled = Mock(return_value=False)
+        app._sync_outer_scroll_policy()
+        app.canvas.yview_moveto.assert_called_once_with(0.0)
+        app.scrollbar.pack_forget.assert_called_once_with()
+
+    def test_scrollbar_policy_restores_outer_scrollbar_below_1870(self):
+        app = object.__new__(gui.App)
+        app.canvas = Mock()
+        app.scrollbar = Mock()
+        app.scrollbar.winfo_manager.return_value = ''
+        app._outer_scroll_enabled = Mock(return_value=True)
+        app._sync_outer_scroll_policy()
+        app.scrollbar.pack.assert_called_once_with(side='right', fill='y')
+        app.canvas.yview_moveto.assert_not_called()
 
 if __name__ == '__main__':
     unittest.main()

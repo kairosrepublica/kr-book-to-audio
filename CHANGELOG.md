@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.3.2 — Istanbul Release v2.3.2
+
+- Replaced the 1900 px desktop-shell threshold with the precise 1870 px threshold.
+- Set the Owner 2160p default desktop size to 1200 × 1870 px while preserving the 1150 px minimum width.
+- Hide the outer workflow scrollbar and disable ordinary outer mouse-wheel or touchpad routing whenever the actual window height is at least 1870 px.
+- Restore the outer scrollbar and ordinary outer scrolling only when the actual window height falls below 1870 px.
+- Preserve fixed Footer behavior and native scrolling priority for Run log, Recent jobs, Part status, Listbox and Combobox controls.
+- Keep SQLite durable state, Resume, OCR, TTS and quiet export unchanged.
+
 ## 2.3.1 — Istanbul Release v2.3.1
 
 - Removed the outdated top README hero screenshot while preserving historical interface evidence below.

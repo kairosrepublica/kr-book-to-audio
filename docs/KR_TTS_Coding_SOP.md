@@ -201,7 +201,9 @@ For every desktop-shell mutation:
 1. Keep the copyright and Constantinople signature Footer outside the scroll viewport.
 2. Verify that scrolling changes only the internal workflow surface.
 3. Use a deterministic 1200 px default width and a 1150 px minimum width.
-4. Use exactly 1900 px initial height when the active screen height exceeds 1900 px.
-5. Clamp smaller-screen heights to the active display with a safety margin.
-6. Route mouse-wheel and touchpad events to the outer viewport only when the hovered inner widget does not own native scrolling.
-7. Preserve native scrolling for Run log, Recent jobs, Part status and combobox controls.
+4. Use exactly 1870 px initial height when the active screen height exceeds 1870 px.
+5. Hide the outer scrollbar and disable ordinary outer wheel routing whenever the actual window height is at least 1870 px.
+6. Restore the outer scrollbar and ordinary outer wheel routing only when the actual window height falls below 1870 px.
+7. Clamp smaller-screen heights to the active display with a safety margin.
+8. Route mouse-wheel and touchpad events to the outer viewport only when the hovered inner widget does not own native scrolling.
+9. Preserve native scrolling for Run log, Recent jobs, Part status, Listbox and Combobox controls.

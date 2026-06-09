@@ -9,6 +9,18 @@ Copyright © Kent Reis & Kairos República
 
 It converts text-layer PDF, EPUB, MOBI or PalmDOC-compatible AZW or PRC, DOCX, TXT and Markdown sources into independently recoverable MP3 parts and an optional merged MP3 audiobook.
 
+## Istanbul Release v2.3.2
+
+This precision desktop-shell patch keeps the v2.3.1 fixed Footer and the v2.3.0 durable-state engine unchanged:
+
+- the default desktop size is 1200 px wide and exactly 1870 px high when the active screen height exceeds 1870 px;
+- the minimum desktop width remains 1150 px;
+- when the actual window height is at least 1870 px, the outer workflow scrollbar disappears and ordinary outer mouse-wheel or touchpad routing is disabled;
+- when the actual window height falls below 1870 px, the outer workflow scrollbar reappears and ordinary outer scrolling is restored;
+- Run log, Recent jobs, Part status, Listbox and combobox controls retain native scrolling priority;
+- the bottom copyright and Constantinople signature remain permanently fixed outside the scroll viewport;
+- SQLite durable state, Resume, OCR, TTS and quiet export remain unchanged.
+
 ## Istanbul Release v2.3.1
 
 This desktop-shell patch keeps the v2.3.0 durable-state engine unchanged while tightening the presentation layer:
