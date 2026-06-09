@@ -9,6 +9,12 @@ Copyright © Kent Reis & Kairos República
 
 It converts text-layer PDF, EPUB, MOBI or PalmDOC-compatible AZW or PRC, DOCX, TXT and Markdown sources into independently recoverable MP3 parts and an optional merged MP3 audiobook.
 
+## Latest interface
+
+The following Owner-machine screenshot records Istanbul Release v2.4.1 synthesizing an audiobook with responsive Edge Online telemetry after the GUI event-backpressure hotfix:
+
+![KR Book To Audio Istanbul Release v2.4.1 latest GUI](docs/images/kr_book_to_audio_gui_istanbul_release_v2_4_1.png)
+
 ## Istanbul Release v2.4.0
 
 Istanbul Release v2.4.0 adds a resilient dual-provider audiobook workflow and a flat human-facing deliverable folder:
