@@ -2,6 +2,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 import asyncio
+import inspect
 import os
 import tempfile
 import time
@@ -179,14 +180,82 @@ def audition_sample(*, voice: str, rate: str = '+0%', pitch: str = '+0Hz', volum
     return final
 
 
-async def _edge_save(text: str, out_path: Path, *, voice: str, rate: str, pitch: str, volume: str) -> None:
-    import edge_tts
-    await edge_tts.Communicate(text, voice, rate=rate, pitch=pitch, volume=volume).save(str(out_path))
-
-
 def _emit(progress: ProgressCallback | None, **payload: object) -> None:
     if progress:
         progress(payload)
+
+
+def _accepts_keyword(fn: Callable[..., object], name: str) -> bool:
+    try:
+        parameters = inspect.signature(fn).parameters.values()
+    except (TypeError, ValueError):
+        return False
+    return any(parameter.kind == inspect.Parameter.VAR_KEYWORD or parameter.name == name for parameter in parameters)
+
+
+def _invoke_save_func(
+    save_func: Callable[..., object],
+    text: str,
+    partial: Path,
+    *,
+    voice: str,
+    rate: str,
+    pitch: str,
+    volume: str,
+    provider_progress: Callable[[dict[str, object]], None] | None = None,
+) -> None:
+    kwargs: dict[str, object] = {'voice': voice, 'rate': rate, 'pitch': pitch, 'volume': volume}
+    if provider_progress is not None and _accepts_keyword(save_func, 'progress'):
+        kwargs['progress'] = provider_progress
+    maybe = save_func(text, partial, **kwargs)
+    if asyncio.iscoroutine(maybe):
+        asyncio.run(maybe)
+
+
+def _provider_switch_recommendation(provider_id: str, error: str) -> str | None:
+    if provider_id != 'edge-tts':
+        return None
+    return (
+        'Edge Online TTS failed. Recommended action: switch TTS engine to Kokoro Local TTS, '
+        'generate Preview Part 1 again, listen, approve Part 1, then resume from the first incomplete Part. '
+        f'Original error: {error}'
+    )
+
+
+def _provider_progress_bridge(
+    job: JobPaths,
+    manifest: dict,
+    progress: ProgressCallback | None,
+    *,
+    index: int,
+    attempt: int,
+    provider_id: str,
+) -> Callable[[dict[str, object]], None]:
+    last_logged_monotonic = 0.0
+    last_stage = ''
+
+    def callback(payload: dict[str, object]) -> None:
+        nonlocal last_logged_monotonic, last_stage
+        now = time.monotonic()
+        telemetry = {
+            'provider_id': str(payload.get('provider_id') or provider_id),
+            'stage': str(payload.get('stage') or 'provider-running'),
+            'attempt': int(attempt),
+            'index': int(index),
+            'elapsed_seconds': float(payload.get('elapsed_seconds') or 0.0),
+            'bytes_received': int(payload.get('bytes_received') or 0),
+            'last_audio_seconds_ago': float(payload.get('last_audio_seconds_ago') or 0.0),
+        }
+        manifest.setdefault('audio', {})['last_runtime_telemetry'] = dict(telemetry)
+        stage_changed = telemetry['stage'] != last_stage
+        if stage_changed or now - last_logged_monotonic >= 15.0:
+            append_job_log(job, 'provider-runtime', **telemetry)
+            save_manifest(job, manifest)
+            last_logged_monotonic = now
+            last_stage = telemetry['stage']
+        _emit(progress, state='provider-status', estimated_percent=0, **telemetry)
+
+    return callback
 
 
 def _invalidate_for_signature(job: JobPaths, manifest: dict, controls: dict[str, str]) -> None:
@@ -272,9 +341,13 @@ def _synthesize_parts_unlocked(
             _emit(progress, index=index, state=state, attempt=attempt, estimated_percent=5, text_chars=text_chars)
             append_job_log(job, f'part-{state}', index=index, attempt=attempt)
             try:
-                maybe = save_func(text, partial, voice=voice, rate=rate, pitch=pitch, volume=volume)
-                if asyncio.iscoroutine(maybe):
-                    asyncio.run(maybe)
+                provider_progress = _provider_progress_bridge(
+                    job, manifest, progress, index=index, attempt=attempt, provider_id=provider_id,
+                )
+                _invoke_save_func(
+                    save_func, text, partial, voice=voice, rate=rate, pitch=pitch, volume=volume,
+                    provider_progress=provider_progress,
+                )
                 _emit(progress, index=index, state='validating', estimated_percent=95, text_chars=text_chars)
                 metadata = validator(partial)
                 replace_with_retry(partial, audio_path)
@@ -290,15 +363,19 @@ def _synthesize_parts_unlocked(
             except Exception as exc:
                 last_error = f'{type(exc).__name__}: {exc}'
                 partial.unlink(missing_ok=True)
-                append_job_log(job, 'part-attempt-failed', index=index, attempt=attempt, error=last_error)
+                recommendation = _provider_switch_recommendation(provider_id, last_error)
+                append_job_log(job, 'part-attempt-failed', index=index, attempt=attempt, provider_id=provider_id, error=last_error, switch_recommendation=recommendation)
                 if attempt <= retries:
-                    time.sleep(min(45.0, 5.0 * (3 ** (attempt - 1))))
+                    retry_delay = min(45.0, 5.0 * (3 ** (attempt - 1)))
+                    _emit(progress, index=index, state='retry-wait', attempt=attempt + 1, retry_delay_seconds=retry_delay, error=last_error, switch_recommendation=recommendation, text_chars=text_chars)
+                    time.sleep(retry_delay)
         if not ok:
-            failures[str(index)] = {'error': last_error, 'text_sha256': item['sha256'], 'signature': signature}
-            run_failures.append({'index': index, 'error': last_error})
+            recommendation = _provider_switch_recommendation(provider_id, str(last_error))
+            failures[str(index)] = {'error': last_error, 'text_sha256': item['sha256'], 'signature': signature, 'provider_id': provider_id, 'switch_recommendation': recommendation}
+            run_failures.append({'index': index, 'error': last_error, 'provider_id': provider_id, 'switch_recommendation': recommendation})
             checkpoint_execution(job, manifest, last_step='part-failed', current_part=index, current_part_state='failed')
-            _emit(progress, index=index, state='failed', error=last_error, estimated_percent=0, text_chars=text_chars)
-            append_job_log(job, 'part-failed', index=index, error=last_error)
+            _emit(progress, index=index, state='failed', error=last_error, switch_recommendation=recommendation, estimated_percent=0, text_chars=text_chars)
+            append_job_log(job, 'part-failed', index=index, provider_id=provider_id, error=last_error, switch_recommendation=recommendation)
         if gap_seconds:
             time.sleep(gap_seconds)
     finish_execution(job, manifest, status='completed-with-failures' if run_failures else 'idle', last_step='synthesis-finished')
@@ -395,9 +472,10 @@ def generate_resume_voice_check(
         cleanup_stale_partials(candidate)
         partial = unique_partial_path(candidate, before_suffix=True)
         save_func = save_func or get_tts_provider(provider_id).synthesize
-        maybe = save_func((job.parts_text / first['file']).read_text(encoding='utf-8'), partial, voice=voice, rate=rate, pitch=pitch, volume=volume)
-        if asyncio.iscoroutine(maybe):
-            asyncio.run(maybe)
+        _invoke_save_func(
+            save_func, (job.parts_text / first['file']).read_text(encoding='utf-8'), partial,
+            voice=voice, rate=rate, pitch=pitch, volume=volume,
+        )
         candidate_metadata = validator(partial)
         replace_with_retry(partial, candidate)
         append_job_log(job, 'resume-voice-check-generated', signature=signature, preserved_part_one=str(existing), candidate_part_one=str(candidate))

@@ -6,6 +6,7 @@ from .audio import approve_preview, audition_sample, merge_parts, retry_failed_p
 from .config import DEFAULT_CHUNK_CJK, DEFAULT_PROCESSING_PROFILE, DEFAULT_RATE, DEFAULT_TTS_ENGINE, DEFAULT_VOICE, default_export_root, local_work_root
 from .history import list_recent_jobs, rebuild_history, remove_from_history
 from .export import finalize_export, verify_export
+from .diagnostics import export_diagnostic_zip
 from .recovery import recover_job
 from .extractors import diagnose
 from .models import JobPaths
@@ -44,6 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser('merge'); p.add_argument('job'); p.add_argument('--name')
     p = sub.add_parser('finalize-export'); p.add_argument('job')
     p = sub.add_parser('verify-export'); p.add_argument('job'); p.add_argument('--require-merged', action='store_true')
+    p = sub.add_parser('diagnostics-export'); p.add_argument('job'); p.add_argument('--output-root')
     p = sub.add_parser('status'); p.add_argument('job')
     return parser
 
@@ -93,6 +95,8 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(finalize_export(job), ensure_ascii=False, indent=2)); return 0
     if args.command == 'verify-export':
         print(json.dumps(verify_export(job, require_merged=args.require_merged), ensure_ascii=False, indent=2)); return 0
+    if args.command == 'diagnostics-export':
+        print(export_diagnostic_zip(job, root=Path(args.output_root) if args.output_root else None)); return 0
     if args.command == 'status':
         print(json.dumps(job_status(job), ensure_ascii=False, indent=2)); return 0
     raise AssertionError(args.command)

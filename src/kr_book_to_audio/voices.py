@@ -3,8 +3,9 @@ from pathlib import Path
 import json
 from .config import config_path
 from .providers import get_tts_provider
+from .local_tts import KOKORO_VOICES
 
-FALLBACK_VOICES = [
+EDGE_FALLBACK_VOICES = [
     {'short_name': 'zh-CN-YunyangNeural', 'locale': 'zh-CN', 'gender': 'Male', 'friendly_name': 'zh-CN-YunyangNeural'},
     {'short_name': 'zh-CN-XiaoxiaoNeural', 'locale': 'zh-CN', 'gender': 'Female', 'friendly_name': 'zh-CN-XiaoxiaoNeural'},
     {'short_name': 'zh-CN-YunxiNeural', 'locale': 'zh-CN', 'gender': 'Male', 'friendly_name': 'zh-CN-YunxiNeural'},
@@ -12,6 +13,11 @@ FALLBACK_VOICES = [
     {'short_name': 'en-US-GuyNeural', 'locale': 'en-US', 'gender': 'Male', 'friendly_name': 'en-US-GuyNeural'},
     {'short_name': 'en-GB-SoniaNeural', 'locale': 'en-GB', 'gender': 'Female', 'friendly_name': 'en-GB-SoniaNeural'},
 ]
+FALLBACK_VOICES_BY_PROVIDER = {
+    'edge-tts': EDGE_FALLBACK_VOICES,
+    'kokoro-local': [dict(item) for item in KOKORO_VOICES],
+}
+FALLBACK_VOICES = EDGE_FALLBACK_VOICES
 
 
 def voice_cache_path() -> Path:
@@ -34,7 +40,7 @@ def load_voice_cache(provider_id: str = 'edge-tts') -> list[dict[str, str]]:
                     return voices
         except (OSError, ValueError, TypeError):
             pass
-    return list(FALLBACK_VOICES)
+    return [dict(item) for item in FALLBACK_VOICES_BY_PROVIDER.get(provider_id, EDGE_FALLBACK_VOICES)]
 
 
 def refresh_voice_cache(provider_id: str = 'edge-tts') -> list[dict[str, str]]:

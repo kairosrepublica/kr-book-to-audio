@@ -46,3 +46,25 @@ The normal desktop starts at 1200 px wide, enforces a 1150 px minimum width and 
 On Windows, the 1870 px fixed-shell boundary is evaluated from Desktop Window Manager visible top-level frame bounds in physical screen pixels. Tk toolkit height is retained only as a non-Windows or unavailable-native-API fallback. In fixed mode the outer scrollbar is hidden, the outer Canvas returns to the top and ordinary outer wheel propagation is consumed. Native scrolling inside Run log, Recent jobs, Part status, Listbox and Combobox controls remains preserved.
 
 Portable publication requires a real Windows outer-scroll interaction probe in addition to source tests and the existing hidden smoke test.
+
+## v2.4.0 Local TTS foundation
+
+Microsoft Edge Online TTS remains bundled as the default online path. Kokoro Local TTS is an Owner-local optional fallback installed outside the portable folder:
+
+```text
+C:\dev\KR_TTS_Local
+```
+
+Run the source-release setup tool to create the isolated runtime, cache English and Mandarin Kokoro models, generate local samples and optionally cache Qwen3-TTS 0.6B benchmark weights. Provider changes require a new Preview Part 1 approval.
+
+## Kokoro Local runtime
+
+Kokoro Local is an optional Owner-local foundation outside the portable ZIP. Run the governed setup tool to create `C:\dev\KR_TTS_Local`. The setup isolates Kokoro 0.9.4 in a Python 3.12 environment without replacing the Owner global Python installation.
+
+## Owner-local Local Provider resources
+
+The portable application does not embed large Local Provider models. The governed private archive is `_Resource\KR_TTS_Offline_Resources`; `C:\dev\KR_TTS_Local` is the deployed runtime copy. Kokoro execution is offline-only after resource deployment.
+
+## Windows-safe model bootstrap
+
+Model bootstrap uses no-symlink Hugging Face acquisition and persistent `_Resource` staging. Administrator privileges and Windows Developer Mode are not required.

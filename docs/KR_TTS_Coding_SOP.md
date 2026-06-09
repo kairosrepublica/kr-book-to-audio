@@ -218,3 +218,39 @@ For every desktop-shell mutation:
 5. Preserve native inner-widget scrolling priority before outer-event suppression.
 6. Run the real Windows outer-scroll interaction probe before commit and publication.
 7. Treat mocked decision tests as supplemental evidence only.
+
+## v2.4.0 provider resilience and deliverable rules
+
+```text
+1. Treat online synthesis as a streamed operation, not an opaque save call.
+2. Emit truthful stage, elapsed, received-byte and last-audio-age telemetry.
+3. Enforce a no-audio watchdog and a bounded total-Part watchdog.
+4. Retry deterministically and surface an actionable Provider-switch recommendation.
+5. Never silently switch Provider inside an audiobook job. Provider change invalidates Preview approval.
+6. Keep local TTS runtimes and model caches outside OneDrive under C:\dev\KR_TTS_Local.
+7. Keep the user-facing Export folder flat: MP3 files plus one reviewed cleaned-text TXT only.
+8. Keep machine-facing export receipts, manifests, logs and checkpoints internal under _work.
+9. Refuse destructive overwrite when legacy export flattening finds conflicting files.
+10. Export sanitized diagnostics without book text, MP3 files, credentials or unnecessary absolute paths.
+```
+
+## Local Provider runtime compatibility gate
+
+Before installing a Local Provider dependency, verify its Python compatibility range. Kokoro 0.9.4 requires Python `>=3.10,<3.13`. When the Owner system Python is 3.13 or newer, provision an isolated `uv`-managed Python 3.12 runtime under `C:\dev\KR_TTS_Local` and recreate only the incompatible Kokoro virtual environment. Do not modify the Owner global Python installation.
+
+## Local TTS resource acquisition SOP
+
+1. Use an explicit online-acquisition subprocess environment with inherited offline-only flags overridden.
+2. Acquire reusable wheels and model snapshots into the Owner-private `_Resource\KR_TTS_Offline_Resources` archive first.
+3. Generate SHA-256 receipts and a resource manifest.
+4. Deploy verified Kokoro snapshots into `C:\dev\KR_TTS_Local`.
+5. Run the Kokoro worker with offline mode enforced.
+6. Never treat pip cache, AppData, Temp or the rebuildable runtime copy as the authoritative archive.
+
+## Windows-safe Hugging Face model staging
+
+1. Set `HF_HUB_DISABLE_SYMLINKS=1` during acquisition.
+2. Stage model downloads under the governed `_Resource` archive, not an ephemeral Temp directory.
+3. Preserve incomplete staging data after a failed acquisition so a later run can resume.
+4. Promote only complete verified snapshots into the formal archive.
+5. Delete the staging tree only after formal archive promotion succeeds.

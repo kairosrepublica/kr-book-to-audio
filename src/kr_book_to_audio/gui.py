@@ -15,6 +15,7 @@ from .config import DEFAULT_KEEP_AWAKE, DEFAULT_PITCH, DEFAULT_PROCESSING_PROFIL
 from .manifest import load_manifest, save_manifest
 from .history import display_status, format_last_active, list_recent_jobs, list_resumable_jobs, rebuild_history, remove_from_history
 from .export import export_is_verified, finalize_export
+from .diagnostics import diagnostics_root, export_diagnostic_zip
 from .recovery import recover_job, scan_and_recover_jobs
 from .models import JobPaths
 from .ocr import OCRAnalysis, analyze_source, preview_sample_ocr, run_recommended_ocr
@@ -298,6 +299,7 @@ class App:
         self.current_expected_seconds = 30.0
         self.runtime_seconds_per_char: list[float] = []
         self.logged_progress_buckets: dict[int, int] = {}
+        self.provider_runtime: dict[str, object] = {}
         self.ocr_analysis: OCRAnalysis | None = None
         self.source = tk.StringVar()
         self.source_folder = str(cfg.get('source_folder', Path.home()))
@@ -307,7 +309,12 @@ class App:
         self.profile = tk.StringVar(value=PROFILE_BY_ID.get(str(cfg.get('processing_profile', DEFAULT_PROCESSING_PROFILE)), 'Auto detect · recommended'))
         specs = enabled_tts_specs()
         self.tts_engine_labels = {spec.label: spec.provider_id for spec in specs}
-        self.tts_engine = tk.StringVar(value=next(iter(self.tts_engine_labels), 'Microsoft Edge Online TTS · edge-tts'))
+        configured_tts_engine = str(cfg.get('tts_engine', 'edge-tts'))
+        configured_tts_label = next(
+            (label for label, provider_id in self.tts_engine_labels.items() if provider_id == configured_tts_engine),
+            next(iter(self.tts_engine_labels), 'Microsoft Edge Online TTS · edge-tts'),
+        )
+        self.tts_engine = tk.StringVar(value=configured_tts_label)
         self.voice = tk.StringVar(value=cfg.get('voice', DEFAULT_VOICE))
         self.rate = tk.StringVar(value=cfg.get('rate', DEFAULT_RATE))
         self.pitch = tk.StringVar(value=cfg.get('pitch', DEFAULT_PITCH))
@@ -317,6 +324,7 @@ class App:
         self.keep_awake = tk.BooleanVar(value=bool(cfg.get('keep_awake', DEFAULT_KEEP_AWAKE)))
         self.recent_by_iid: dict[str, dict] = {}
         self.voice_records = load_voice_cache(self._tts_engine_id())
+        self.last_tts_engine_id = self._tts_engine_id()
         self.advanced_ocr_visible = False
         self.ocr_override = tk.StringVar(value='Use recommended engine')
         self._build()
@@ -399,7 +407,7 @@ class App:
         add_help(opts, 'Controls cleanup and chunking rules. Auto detect is recommended. You can override it before Prepare text.', row=0, column=2, sticky='w', padx=(0, 14))
         ttk.Label(opts, text='TTS engine').grid(row=0, column=3, sticky='w', padx=(8, 3))
         ttk.Combobox(opts, textvariable=self.tts_engine, values=list(self.tts_engine_labels), state='readonly', width=38).grid(row=0, column=4, sticky='w', padx=3)
-        add_help(opts, 'Current release enables Microsoft Edge Online TTS through edge-tts. The provider registry reserves future local and external API adapters.', row=0, column=5, sticky='w', padx=(0, 14))
+        add_help(opts, 'Microsoft Edge Online TTS remains available. Kokoro Local TTS is the offline fallback after the Owner-local foundation is installed.', row=0, column=5, sticky='w', padx=(0, 14))
         ttk.Label(opts, text='Voice').grid(row=1, column=0, sticky='w', padx=(6, 3), pady=4)
         self.voice_combo = ttk.Combobox(opts, textvariable=self.voice, state='readonly', width=34)
         self.voice_combo.grid(row=1, column=1, sticky='w', padx=3)
@@ -473,6 +481,10 @@ class App:
         runtime.grid(row=9, column=0, columnspan=6, sticky='ew', pady=(0, 5))
         ttk.Checkbutton(runtime, text='Keep computer awake during OCR or TTS', variable=self.keep_awake).grid(row=0, column=0, sticky='w', padx=6, pady=4)
         add_help(runtime, 'Prevents automatic system sleep while OCR or TTS is running. It does not block manual sleep, shutdown or lid-close actions.', row=0, column=1, sticky='w', padx=(3, 8))
+        diagnostic_button = ttk.Button(runtime, text='Export diagnostic ZIP', command=self.export_diagnostics_action)
+        diagnostic_button.grid(row=0, column=2, sticky='w', padx=6, pady=4)
+        ttk.Button(runtime, text='Open diagnostics folder', command=self.open_diagnostics_folder).grid(row=0, column=3, sticky='w', padx=6, pady=4)
+        add_help(runtime, 'Exports a sanitized ZIP containing run.log and runtime summary. Book text, MP3 files, credentials and unnecessary absolute paths are excluded.', row=0, column=4, sticky='w', padx=(3, 8))
 
         self.status = ttk.Label(frame, text='Ready.')
         self.status.grid(row=10, column=0, columnspan=6, sticky='w')
@@ -696,6 +708,13 @@ class App:
         return self.job
 
     def _voice_controls_changed(self, *_: object) -> None:
+        provider_id = self._tts_engine_id()
+        if getattr(self, 'last_tts_engine_id', provider_id) != provider_id:
+            self.last_tts_engine_id = provider_id
+            self.voice_records = load_voice_cache(provider_id)
+            if hasattr(self, 'voice_combo'):
+                self._apply_voice_filter()
+                self._refresh_voices(background=True)
         if self.job: self.status.config(text='Speech settings changed. Generate and approve Part 1 again before full synthesis.')
         self._render_workflow_state()
 
@@ -769,10 +788,17 @@ class App:
                     self._log_event(f'Failed: {label} · {payload}')
                     messagebox.showerror(label, payload)
                 else:
-                    self.status.config(text=f'Completed: {label}')
-                    self._log_event(f'Completed: {label}')
-                    if callback: callback(payload)
-                    self._refresh_job_view()
+                    failures = payload.get('failures') if isinstance(payload, dict) else None
+                    if failures:
+                        self.status.config(text=f'Failed: {label}')
+                        detail = str(failures[0].get('switch_recommendation') or failures[0].get('error') or failures[0])
+                        self._log_event(f'Failed: {label} · {detail}')
+                        messagebox.showerror(label, detail)
+                    else:
+                        self.status.config(text=f'Completed: {label}')
+                        self._log_event(f'Completed: {label}')
+                        if callback: callback(payload)
+                        self._refresh_job_view()
                 self._render_workflow_state()
         except queue.Empty: pass
         self.root.after(100, self._drain)
@@ -891,23 +917,49 @@ class App:
         elif state == 'failed':
             self._log_event(f'Part {index:04d}: failed')
 
+    @staticmethod
+    def _format_seconds(value: float) -> str:
+        total = max(0, int(value))
+        minutes, seconds = divmod(total, 60)
+        hours, minutes = divmod(minutes, 60)
+        return f'{hours:02d}:{minutes:02d}:{seconds:02d}' if hours else f'{minutes:02d}:{seconds:02d}'
+
+    @staticmethod
+    def _format_bytes(value: int) -> str:
+        amount = float(max(0, int(value)))
+        for unit in ('B', 'KB', 'MB', 'GB'):
+            if amount < 1024.0 or unit == 'GB':
+                return f'{amount:.1f} {unit}'
+            amount /= 1024.0
+        return f'{amount:.1f} GB'
+
+    def _provider_runtime_text(self, elapsed: float) -> str:
+        telemetry = self.provider_runtime
+        stage = str(telemetry.get('stage') or 'synthesizing-audio').replace('-', ' ')
+        provider_id = str(telemetry.get('provider_id') or self._tts_engine_id())
+        bytes_received = int(telemetry.get('bytes_received') or 0)
+        last_audio = float(telemetry.get('last_audio_seconds_ago') or 0.0)
+        telemetry_seen = float(telemetry.get('_ui_received_monotonic') or time.monotonic())
+        last_audio += max(0.0, time.monotonic() - telemetry_seen)
+        attempt = int(telemetry.get('attempt') or 1)
+        return (
+            f'{provider_id} · {stage} · elapsed {self._format_seconds(elapsed)} · '
+            f'audio {self._format_bytes(bytes_received)} · last audio {int(last_audio)} sec ago · attempt {attempt}'
+        )
+
     def _estimate_tick(self, token: int) -> None:
         if token != self.estimate_token or self.current_index is None or self.current_started_monotonic is None:
             return
         elapsed = max(0.0, time.monotonic() - self.current_started_monotonic)
         self.current_estimate = min(94, max(self.current_estimate, int(elapsed / max(1.0, self.current_expected_seconds) * 90)))
-        state = self.part_states.get(self.current_index, 'RUNNING')
-        if 'retrying' in state.lower():
-            label_state = 'retrying'
-        else:
-            label_state = 'synthesizing audio'
+        runtime_text = self._provider_runtime_text(elapsed)
         self.current_progress['value'] = self.current_estimate
-        self.current_label.config(text=f'Part {self.current_index:04d} / current · {self.current_estimate}% estimated · {label_state}')
-        self._set_part_state(self.current_index, f'RUNNING · {self.current_estimate}% estimated', highlight='running')
+        self.current_label.config(text=f'Part {self.current_index:04d} / current · {self.current_estimate}% estimated · {runtime_text}')
+        self._set_part_state(self.current_index, f'RUNNING · {self.current_estimate}% estimated · {runtime_text}', highlight='running')
         self._center_part_status(self.current_index)
         self._log_progress_bucket(self.current_index, 'running', self.current_estimate)
-        if self.current_estimate < 94:
-            self.root.after(700, lambda: self._estimate_tick(token))
+        self.status.config(text=f'Part {self.current_index:04d}: {runtime_text}')
+        self.root.after(700, lambda: self._estimate_tick(token))
 
     def _update_export_progress(self, payload: dict) -> None:
         state = str(payload.get('state') or '')
@@ -922,6 +974,8 @@ class App:
             self._log_event(f'Export copy: {filename} · {index} / {total}')
         elif state == 'copy-reused':
             self.status.config(text=f'Finalizing export: verified existing {index} / {total}')
+        elif state == 'writing-cleaned-text':
+            self.status.config(text=f'Finalizing export: writing cleaned text {filename}')
         elif state == 'verification-started':
             self.status.config(text='Verifying exported files...')
             self._log_event(f'Export verification started. Expected Parts: {total}.')
@@ -951,6 +1005,7 @@ class App:
             self.current_estimate = max(5, estimate)
             self.current_started_monotonic = time.monotonic()
             self.current_expected_seconds = self._expected_seconds(text_chars)
+            self.provider_runtime = {'provider_id': self._tts_engine_id(), 'stage': state, 'attempt': int(payload.get('attempt') or 1), 'bytes_received': 0, 'last_audio_seconds_ago': 0.0}
             self.estimate_token += 1
             token = self.estimate_token
             self.current_progress['value'] = self.current_estimate
@@ -959,13 +1014,28 @@ class App:
             self._center_part_status(index)
             self._log_progress_bucket(index, state, self.current_estimate)
             self.root.after(700, lambda: self._estimate_tick(token))
+        elif state == 'provider-status':
+            self.provider_runtime = dict(payload)
+            self.provider_runtime['_ui_received_monotonic'] = time.monotonic()
+            if self.current_index == index and self.current_started_monotonic is not None:
+                elapsed = max(0.0, time.monotonic() - self.current_started_monotonic)
+                runtime_text = self._provider_runtime_text(elapsed)
+                self.current_label.config(text=f'Part {index:04d} / current · {self.current_estimate}% estimated · {runtime_text}')
+                self._set_part_state(index, f'RUNNING · {self.current_estimate}% estimated · {runtime_text}', highlight='running')
+                self.status.config(text=f'Part {index:04d}: {runtime_text}')
+        elif state == 'retry-wait':
+            delay = float(payload.get('retry_delay_seconds') or 0.0)
+            self.provider_runtime = {'provider_id': self._tts_engine_id(), 'stage': 'retry-wait', 'attempt': int(payload.get('attempt') or 1), 'bytes_received': 0, 'last_audio_seconds_ago': 0.0}
+            self.current_label.config(text=f'Part {index:04d} · provider stalled · retrying in {int(delay)} sec')
+            self._set_part_state(index, f'RETRYING · wait {int(delay)} sec', highlight='running')
+            self._log_event(f'Part {index:04d}: provider stalled · retrying in {int(delay)} sec')
         elif state == 'validating':
             self.estimate_token += 1
             self.current_index = index
             self.current_estimate = 95
             self.current_progress['value'] = 95
-            self.current_label.config(text=f'Part {index:04d} / current · 95% estimated · validating audio')
-            self._set_part_state(index, 'VALIDATING · 95% estimated', highlight='validating')
+            self.current_label.config(text=f'Part {index:04d} / current · validating MP3')
+            self._set_part_state(index, 'VALIDATING MP3', highlight='validating')
             self._center_part_status(index)
             self._log_progress_bucket(index, 'validating', 95)
         elif state == 'done':
@@ -985,14 +1055,17 @@ class App:
             self.current_index = index
             self.current_estimate = 0
             self.current_progress['value'] = 0
-            self.current_label.config(text=f'Part {index:04d} · failed')
+            recommendation = str(payload.get('switch_recommendation') or payload.get('error') or 'unknown provider failure')
+            self.current_label.config(text=f'Part {index:04d} · failed · {recommendation}')
             self._set_part_state(index, 'failed')
             self._center_part_status(index)
             self._log_progress_bucket(index, 'failed', 0)
+            self._log_event(f'Part {index:04d}: {recommendation}')
         else:
             self._set_part_state(index, state)
         self._refresh_job_view()
-        self.status.config(text=f'Part {index:04d}: {state}')
+        if state not in {'provider-status'}:
+            self.status.config(text=f'Part {index:04d}: {state}')
 
     def analyze_ocr(self) -> None:
         value = self.source.get().strip()
@@ -1295,6 +1368,25 @@ class App:
                 self._log_event(f'Opened working audio folder: {job.parts_audio}')
             except RuntimeError as exc:
                 messagebox.showerror('Open output folder', str(exc))
+
+    def export_diagnostics_action(self) -> None:
+        job = self._job_required()
+        if not job:
+            return
+        try:
+            path = export_diagnostic_zip(job)
+            self._log_event(f'Exported diagnostic ZIP: {path}')
+            messagebox.showinfo('Diagnostic ZIP exported', f'Sanitized diagnostic ZIP written to:\n\n{path}')
+        except Exception as exc:
+            messagebox.showerror('Export diagnostic ZIP', f'{type(exc).__name__}: {exc}')
+
+    def open_diagnostics_folder(self) -> None:
+        folder = diagnostics_root()
+        folder.mkdir(parents=True, exist_ok=True)
+        try:
+            open_in_file_manager(folder)
+        except RuntimeError as exc:
+            messagebox.showerror('Open diagnostics folder', str(exc))
 
     def open_selected_output(self) -> None:
         item = self._selected_recent()

@@ -4,8 +4,10 @@ from kr_book_to_audio.providers import OCR_PROVIDER_SPECS, TTS_PROVIDER_SPECS, P
 
 
 class ProviderRegistryTests(unittest.TestCase):
-    def test_edge_tts_is_only_enabled_tts_provider_and_api_slots_are_reserved(self):
+    def test_edge_and_kokoro_are_enabled_while_api_slots_remain_reserved(self):
         self.assertTrue(TTS_PROVIDER_SPECS['edge-tts'].enabled)
+        self.assertTrue(TTS_PROVIDER_SPECS['kokoro-local'].enabled)
+        self.assertFalse(TTS_PROVIDER_SPECS['qwen3-tts-local'].enabled)
         self.assertFalse(TTS_PROVIDER_SPECS['azure-speech-api'].enabled)
         self.assertFalse(TTS_PROVIDER_SPECS['openai-tts-api'].enabled)
         self.assertFalse(TTS_PROVIDER_SPECS['custom-http-tts-api'].enabled)

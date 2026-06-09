@@ -1,3 +1,15 @@
+## 2.4.0 — Istanbul Release v2.4.0
+
+- Stream Microsoft Edge Online TTS audio bytes instead of waiting inside an opaque save call.
+- Add truthful per-Part telemetry: provider stage, elapsed time, bytes received, last-audio age and retry attempt.
+- Add bounded no-audio and total-Part watchdogs with actionable errors and Kokoro Local switch recommendations.
+- Add one-click sanitized diagnostic ZIP export and diagnostics-folder access.
+- Add Kokoro Local TTS as an operational offline fallback and Qwen3-TTS 0.6B as an optional benchmark foundation.
+- Keep Provider changes signature-bound: switching engines requires Preview Part 1 regeneration and Owner approval.
+- Flatten the user-facing Export folder: direct Part MP3 files, optional merged MP3 and one reviewed cleaned-text TXT only.
+- Move export_manifest.json into the internal _work folder and safely migrate legacy parts folders without destructive overwrite.
+- Preserve SQLite durable state, Resume, OCR, chunking and quiet export.
+
 ## 2.3.3 — Istanbul Release v2.3.3
 
 - Measure the Windows visible top-level shell height in physical screen pixels through Desktop Window Manager extended frame bounds instead of comparing Tk toolkit coordinates directly against the 1870 px contract.
@@ -187,3 +199,9 @@ Production Run Safety release.
 Founding public release.
 
 - Correct the Windows PyInstaller spec-root contract: treat `SPECPATH` as the spec directory, use one parent traversal and preload `src` before hook-based package-data collection.
+
+- Harden Kokoro Local foundation setup: detect Python-version incompatibility and provision an isolated `uv`-managed Python 3.12 runtime without mutating Owner global Python.
+
+- Add governed offline TTS resource archive: acquire reusable Local Provider resources online into the Owner-private `_Resource` tree, verify them, then deploy an offline runtime copy under `C:\dev\KR_TTS_Local`.
+
+- Make Local Provider model acquisition Windows-safe and resumable: disable Hugging Face cache symlinks and keep incomplete downloads in persistent `_Resource` staging until verified archive promotion succeeds.

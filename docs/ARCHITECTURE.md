@@ -224,3 +224,48 @@ physical visible top-level shell height < 1870 px:
 ```
 
 A Windows target-runtime interaction probe is a mandatory release gate. Mocked mode-decision tests are supplemental only.
+
+## Istanbul Release v2.4.0 — resilient provider and flat-export boundary
+
+```text
+Edge Online TTS
+  stream audio bytes
+  emit provider telemetry
+  enforce no-audio watchdog
+  enforce total-Part watchdog
+  retry with bounded backoff
+  recommend Kokoro Local after failure
+
+Kokoro Local TTS
+  Owner-local isolated Python environment
+  Owner-local Hugging Face model cache
+  external hidden worker process
+  FFmpeg MP3 encoding
+  signature-bound Preview reapproval
+
+User-facing Export folder
+  direct verified MP3 files
+  optional merged MP3
+  one reviewed cleaned-text TXT
+  no subfolders
+  no internal JSON
+
+Internal working root
+  SQLite authority
+  derived job manifest
+  export_manifest.json
+  run.log
+  staging and checkpoints
+```
+
+## Kokoro Local runtime isolation
+
+Kokoro 0.9.4 is installed inside an isolated Python 3.12 environment under `C:\dev\KR_TTS_Local\envs\kokoro`. The setup tool uses a pinned Owner-local `uv` bootstrap and an Owner-local managed Python runtime. It does not mutate global Python, `PATH` or Windows registry state.
+
+## Governed resource archive and offline deployment
+
+Kokoro Local separates online acquisition from offline execution. Reusable wheels, the uv-managed Python runtime, Kokoro snapshots, optional Qwen benchmark snapshots, samples and SHA-256 receipts are archived under the Owner-private `_Resource\KR_TTS_Offline_Resources` tree. `C:\dev\KR_TTS_Local` is a rebuildable runtime copy. The worker enforces offline Hugging Face mode after deployment.
+
+## Windows-safe Hugging Face staging
+
+The Owner-private resource archive disables Hugging Face cache symlinks during model acquisition and uses a persistent `_staging` directory inside `_Resource\KR_TTS_Offline_Resources`. This avoids administrator-only symlink creation on Windows and preserves partial downloads for a later resume. Completed verified snapshots are promoted into the formal archive before deployment into the rebuildable `C:\dev\KR_TTS_Local` runtime copy.

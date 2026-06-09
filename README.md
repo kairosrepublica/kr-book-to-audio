@@ -9,6 +9,30 @@ Copyright © Kent Reis & Kairos República
 
 It converts text-layer PDF, EPUB, MOBI or PalmDOC-compatible AZW or PRC, DOCX, TXT and Markdown sources into independently recoverable MP3 parts and an optional merged MP3 audiobook.
 
+## Istanbul Release v2.4.0
+
+Istanbul Release v2.4.0 adds a resilient dual-provider audiobook workflow and a flat human-facing deliverable folder:
+
+- Microsoft Edge Online TTS remains available, but now streams real audio bytes with elapsed time, received-byte telemetry, last-audio age, bounded retry and stall watchdogs;
+- Kokoro Local TTS is the operational offline fallback after the Owner-local foundation is installed;
+- Qwen3-TTS 0.6B CustomVoice weights may be cached as a higher-quality local benchmark foundation without blocking Kokoro;
+- changing Provider remains signature-bound and requires Preview Part 1 regeneration plus Owner approval before full synthesis;
+- **Export diagnostic ZIP** creates a sanitized support bundle containing run.log and runtime summary without book text, MP3 files, credentials or unnecessary absolute paths;
+- the user-facing Export folder is flat: verified Part MP3 files, an optional merged MP3 and one reviewed cleaned-text TXT named after the book title;
+- internal manifests, checkpoints and logs remain under the local working root.
+
+The human-facing deliverable tree is now:
+
+```text
+<Export root>\
+    YYYYMMDD_HHMMSS_<Book title>\
+        part-0001.mp3
+        part-0002.mp3
+        ...
+        <Book title>.mp3          # optional merged audiobook
+        <Book title>.txt          # reviewed cleaned text
+```
+
 ## Istanbul Release v2.3.3
 
 Istanbul Release v2.3.3 closes the Windows display-scaling gap in the desktop fixed-shell contract:
@@ -357,3 +381,15 @@ When an older task lacks a complete speech-control snapshot, the desktop does no
 ## CI release gate
 
 The publisher waits for the GitHub Actions `main` workflow to pass before it creates a tag or GitHub Release. A red remote workflow blocks Release creation.
+
+### Isolated local runtime compatibility
+
+Kokoro Local uses an Owner-local isolated Python 3.12 runtime under `C:\dev\KR_TTS_Local`. The setup tool provisions that runtime through a pinned `uv` bootstrap when the Owner system Python is outside Kokoro 0.9.4's supported range. It does not replace or modify the Owner global Python installation.
+
+## Governed offline TTS resource archive
+
+Local TTS resources are acquired online into the Owner-private archive first, verified with SHA-256, and only then deployed into the rebuildable `C:\dev\KR_TTS_Local` runtime copy. The private archive lives under `_Resource\KR_TTS_Offline_Resources` and must not be committed to public GitHub. Daily Kokoro execution is offline-only.
+
+## Windows-safe Local Provider model acquisition
+
+The governed resource archive uses a no-symlink Hugging Face cache mode for Windows compatibility. Model acquisition stages files persistently under `_Resource\KR_TTS_Offline_Resources\_staging`, so an interrupted download can resume without depending on administrator privileges, Windows Developer Mode or an ephemeral Temp directory.
