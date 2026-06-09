@@ -207,3 +207,14 @@ For every desktop-shell mutation:
 7. Clamp smaller-screen heights to the active display with a safety margin.
 8. Route mouse-wheel and touchpad events to the outer viewport only when the hovered inner widget does not own native scrolling.
 9. Preserve native scrolling for Run log, Recent jobs, Part status, Listbox and Combobox controls.
+
+
+## Windows physical-pixel fixed-shell release gate — Istanbul Release v2.3.3
+
+1. Treat the 1870 px fixed-shell boundary as a physical visible-window contract.
+2. On Windows, resolve visible top-level shell height through Desktop Window Manager extended frame bounds.
+3. Do not compare Tk toolkit coordinates directly against a physical-pixel contract.
+4. When fixed mode is active, reset the outer Canvas to the top, hide the outer scrollbar and consume ordinary outer wheel events.
+5. Preserve native inner-widget scrolling priority before outer-event suppression.
+6. Run the real Windows outer-scroll interaction probe before commit and publication.
+7. Treat mocked decision tests as supplemental evidence only.

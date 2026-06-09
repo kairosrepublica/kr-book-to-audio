@@ -204,3 +204,23 @@ smaller screen: clamp height inside the active display with a safety margin
 ```
 
 Mouse-wheel and touchpad events scroll the outer workflow viewport unless the pointer is above an inner widget with native scrolling behavior, including the Run log, Recent jobs, Part status, Listbox or Combobox controls.
+
+
+## Istanbul Release v2.3.3 Windows physical-pixel fixed-shell adapter
+
+The fixed-shell boundary is a physical-pixel contract. Tk toolkit geometry is not used as the Windows authority for this decision because display scaling can place Tk coordinates and visible screen pixels in different coordinate spaces.
+
+On Windows, `visible_window_height_px()` resolves the visible top-level window height through Desktop Window Manager extended frame bounds (`DWMWA_EXTENDED_FRAME_BOUNDS`). The App consumes ordinary outer wheel events in fixed mode so a later Tk binding cannot move the outer workflow surface. Inner controls with native scrolling remain exempt and retain their native priority.
+
+```text
+physical visible top-level shell height >= 1870 px:
+  hide outer scrollbar
+  reset outer Canvas to top
+  consume ordinary outer wheel events without scrolling
+
+physical visible top-level shell height < 1870 px:
+  restore outer scrollbar
+  restore ordinary outer workflow scrolling
+```
+
+A Windows target-runtime interaction probe is a mandatory release gate. Mocked mode-decision tests are supplemental only.

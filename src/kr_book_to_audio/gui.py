@@ -233,8 +233,45 @@ def preserves_native_wheel(widget_class: str) -> bool:
 
 
 def outer_scroll_enabled(window_height: int) -> bool:
-    """Return True only while the outer workflow surface needs scrolling."""
+    """Return True only while the physical visible outer shell is below the fixed threshold."""
     return int(window_height) < LARGE_WINDOW_HEIGHT
+
+
+def visible_window_height_px(root: tk.Misc) -> int:
+    """Return the visible top-level window height in physical screen pixels when Windows exposes it.
+
+    Tk window geometry can be expressed in toolkit coordinates that do not reliably match a
+    physical-pixel desktop contract under Windows display scaling. Desktop Window Manager
+    extended frame bounds are returned in physical screen-space pixels and therefore govern
+    the fixed-shell threshold. Other platforms retain the Tk fallback.
+    """
+    fallback = max(0, int(root.winfo_height()))
+    if os.name != 'nt':
+        return fallback
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class RECT(ctypes.Structure):
+            _fields_ = [
+                ('left', wintypes.LONG),
+                ('top', wintypes.LONG),
+                ('right', wintypes.LONG),
+                ('bottom', wintypes.LONG),
+            ]
+
+        user32 = ctypes.windll.user32
+        dwmapi = ctypes.windll.dwmapi
+        hwnd = int(root.winfo_id())
+        root_hwnd = int(user32.GetAncestor(hwnd, 2) or hwnd)  # GA_ROOT
+        rect = RECT()
+        result = int(dwmapi.DwmGetWindowAttribute(root_hwnd, 9, ctypes.byref(rect), ctypes.sizeof(rect)))  # DWMWA_EXTENDED_FRAME_BOUNDS
+        height = int(rect.bottom - rect.top)
+        if result == 0 and height > 0:
+            return height
+    except (AttributeError, OSError, TypeError, ValueError):
+        pass
+    return fallback
 
 
 class App:
@@ -492,7 +529,7 @@ class App:
             self._sync_outer_scroll_policy()
 
     def _outer_scroll_enabled(self) -> bool:
-        return outer_scroll_enabled(self.root.winfo_height())
+        return outer_scroll_enabled(visible_window_height_px(self.root))
 
     def _sync_outer_scroll_policy(self) -> None:
         if not hasattr(self, 'scrollbar'):
@@ -506,8 +543,10 @@ class App:
             self.scrollbar.pack_forget()
 
     def _scroll_outer_viewport(self, units: int) -> str | None:
-        if not units or not self._outer_scroll_enabled():
+        if not units:
             return None
+        if not self._outer_scroll_enabled():
+            return 'break'
         self.canvas.yview_scroll(int(units), 'units')
         return 'break'
 

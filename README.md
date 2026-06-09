@@ -9,6 +9,17 @@ Copyright © Kent Reis & Kairos República
 
 It converts text-layer PDF, EPUB, MOBI or PalmDOC-compatible AZW or PRC, DOCX, TXT and Markdown sources into independently recoverable MP3 parts and an optional merged MP3 audiobook.
 
+## Istanbul Release v2.3.3
+
+Istanbul Release v2.3.3 closes the Windows display-scaling gap in the desktop fixed-shell contract:
+
+- Windows fixed mode is governed by the visible top-level shell height in physical screen pixels, using Desktop Window Manager extended frame bounds;
+- when the physical visible shell height is at least 1870 px, the outer workflow scrollbar disappears and ordinary outer mouse-wheel or touchpad propagation is suppressed;
+- when the physical visible shell height falls below 1870 px, the outer workflow scrollbar reappears and ordinary outer scrolling is restored;
+- Run log, Recent jobs, Part status, Listbox and Combobox controls retain native scrolling priority;
+- the Footer remains permanently fixed outside the scroll viewport;
+- SQLite durable state, Resume, OCR, TTS and quiet export remain unchanged.
+
 ## Istanbul Release v2.3.2
 
 This precision desktop-shell patch keeps the v2.3.1 fixed Footer and the v2.3.0 durable-state engine unchanged:

@@ -1,3 +1,11 @@
+## 2.3.3 — Istanbul Release v2.3.3
+
+- Measure the Windows visible top-level shell height in physical screen pixels through Desktop Window Manager extended frame bounds instead of comparing Tk toolkit coordinates directly against the 1870 px contract.
+- Suppress ordinary outer mouse-wheel and touchpad propagation in fixed mode by consuming the event after the physical visible shell reaches 1870 px.
+- Preserve native scrolling priority for Run log, Recent jobs, Part status, Listbox and Combobox controls.
+- Add a real Windows target-runtime outer-scroll interaction probe that verifies high-window fixed mode and below-threshold scroll restoration before publication.
+- Preserve SQLite durable state, Resume, OCR, TTS and quiet export unchanged.
+
 # Changelog
 
 ## 2.3.2 — Istanbul Release v2.3.2
