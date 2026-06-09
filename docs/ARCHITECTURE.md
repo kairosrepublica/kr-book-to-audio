@@ -269,3 +269,27 @@ Kokoro Local separates online acquisition from offline execution. Reusable wheel
 ## Windows-safe Hugging Face staging
 
 The Owner-private resource archive disables Hugging Face cache symlinks during model acquisition and uses a persistent `_staging` directory inside `_Resource\KR_TTS_Offline_Resources`. This avoids administrator-only symlink creation on Windows and preserves partial downloads for a later resume. Completed verified snapshots are promoted into the formal archive before deployment into the rebuildable `C:\dev\KR_TTS_Local` runtime copy.
+
+## v2.4.1 GUI event-backpressure boundary
+
+```text
+control events:
+  small ordered queue
+  bounded events per drain cycle
+  bounded milliseconds per drain cycle
+
+Provider telemetry:
+  latest-only snapshot per active Part
+  fixed-memory coalescing
+  stale telemetry rejected after validating, done or failed
+
+Tkinter thread boundary:
+  GUI thread snapshots speech controls before worker launch
+  background workers receive ordinary Python values only
+  Preview playback is dispatched from the GUI success callback
+
+Kokoro Local:
+  heartbeat while worker runs
+  total deadline
+  terminate then kill fallback
+```

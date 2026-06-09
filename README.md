@@ -393,3 +393,7 @@ Local TTS resources are acquired online into the Owner-private archive first, ve
 ## Windows-safe Local Provider model acquisition
 
 The governed resource archive uses a no-symlink Hugging Face cache mode for Windows compatibility. Model acquisition stages files persistently under `_Resource\KR_TTS_Offline_Resources\_staging`, so an interrupted download can resume without depending on administrator privileges, Windows Developer Mode or an ephemeral Temp directory.
+
+## Istanbul Release v2.4.1 — GUI responsiveness hotfix
+
+Streaming Provider telemetry now uses a fixed-memory latest-only mailbox rather than an unbounded GUI event backlog. The Tkinter main loop processes bounded control work per cycle, yields back to Windows promptly and renders telemetry with lightweight updates. Speech controls are snapshotted on the GUI thread before background work begins. Preview playback is dispatched only after the GUI receives a successful terminal callback. Kokoro Local emits visible heartbeats and is terminated safely if its worker exceeds the bounded deadline.

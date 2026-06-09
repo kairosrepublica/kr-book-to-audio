@@ -1,3 +1,15 @@
+## 2.4.1 — Istanbul Release v2.4.1
+
+- Prevent streaming Provider telemetry from starving the Tkinter GUI event loop.
+- Replace per-chunk GUI queue growth with a fixed-memory latest-only telemetry mailbox.
+- Add bounded control-event drain count and bounded GUI callback time, yielding back to the Windows message pump every cycle.
+- Keep telemetry-only rendering lightweight instead of refreshing the full job view for every Provider status update.
+- Snapshot speech controls on the GUI thread before starting workers; background workers no longer read Tkinter variables.
+- Dispatch Preview playback only from the GUI success callback after synthesis and checkpoint completion.
+- Add Kokoro Local heartbeat telemetry, total timeout, terminate and kill fallback paths.
+- Extend portable Windows verification with a sustained 100,000-event GUI responsiveness probe.
+- Preserve Edge watchdogs, Kokoro Local resources, SQLite durable state, Resume, OCR, chunking, flat Export and quiet export.
+
 ## 2.4.0 — Istanbul Release v2.4.0
 
 - Stream Microsoft Edge Online TTS audio bytes instead of waiting inside an opaque save call.

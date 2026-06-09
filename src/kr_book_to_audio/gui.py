@@ -134,6 +134,59 @@ class BusyGuard:
             return self._label
 
 
+class LatestTelemetryMailbox:
+    """Keep only the latest high-frequency Provider telemetry per active Part.
+
+    Audio streaming can emit thousands of low-level chunk updates. GUI history does not
+    need every chunk. Keeping a latest-only snapshot prevents unbounded queue growth
+    while preserving truthful current status. Terminal Parts reject stale telemetry
+    until a later retry explicitly reopens the Part.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._latest: dict[int, dict[str, object]] = {}
+        self._terminal: set[int] = set()
+
+    def reopen(self, index: int) -> None:
+        with self._lock:
+            self._terminal.discard(int(index))
+            self._latest.pop(int(index), None)
+
+    def publish(self, payload: dict[str, object]) -> bool:
+        index = int(payload.get('index') or 0)
+        if index <= 0:
+            return False
+        with self._lock:
+            if index in self._terminal:
+                return False
+            self._latest[index] = dict(payload)
+            return True
+
+    def mark_terminal(self, index: int) -> None:
+        with self._lock:
+            index = int(index)
+            self._terminal.add(index)
+            self._latest.pop(index, None)
+
+    def take_latest(self, *, limit: int = 8) -> list[dict[str, object]]:
+        with self._lock:
+            indexes = sorted(self._latest)[:max(0, int(limit))]
+            snapshots = [self._latest.pop(index) for index in indexes]
+        return snapshots
+
+    def pending_count(self) -> int:
+        with self._lock:
+            return len(self._latest)
+
+
+CONTROL_EVENT_QUEUE_MAXSIZE = 2048
+CONTROL_EVENTS_PER_DRAIN = 48
+CONTROL_DRAIN_TIME_BUDGET_SECONDS = 0.010
+TELEMETRY_SNAPSHOTS_PER_DRAIN = 8
+GUI_DRAIN_INTERVAL_MS = 50
+
+
 class Tooltip:
     def __init__(self, widget: tk.Widget, text: str):
         self.widget = widget
@@ -284,7 +337,8 @@ class App:
         geometry, self.layout_mode = compute_window_geometry(self.root.winfo_screenwidth(), self.root.winfo_screenheight(), cfg.get('window_geometry_v231'))
         self.root.geometry(geometry)
         self.root.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
-        self.events: queue.Queue[tuple] = queue.Queue()
+        self.events: queue.Queue[tuple] = queue.Queue(maxsize=CONTROL_EVENT_QUEUE_MAXSIZE)
+        self.telemetry_mailbox = LatestTelemetryMailbox()
         self.job: JobPaths | None = None
         self.busy = BusyGuard()
         self.action_buttons: list[tk.Widget] = []
@@ -300,6 +354,8 @@ class App:
         self.runtime_seconds_per_char: list[float] = []
         self.logged_progress_buckets: dict[int, int] = {}
         self.provider_runtime: dict[str, object] = {}
+        self.preview_playback_token = 0
+        self.last_played_preview_token = 0
         self.ocr_analysis: OCRAnalysis | None = None
         self.source = tk.StringVar()
         self.source_folder = str(cfg.get('source_folder', Path.home()))
@@ -335,7 +391,7 @@ class App:
         self.profile.trace_add('write', self._profile_changed)
         self.show_all_voices.trace_add('write', self._profile_changed)
         self.show_older_attempts.trace_add('write', lambda *_: self.refresh_recent_jobs())
-        self.root.after(100, self._drain)
+        self.root.after(GUI_DRAIN_INTERVAL_MS, self._drain)
         self.root.after(250, self._startup_recovery)
         self._refresh_voices(background=True)
 
@@ -481,9 +537,10 @@ class App:
         runtime.grid(row=9, column=0, columnspan=6, sticky='ew', pady=(0, 5))
         ttk.Checkbutton(runtime, text='Keep computer awake during OCR or TTS', variable=self.keep_awake).grid(row=0, column=0, sticky='w', padx=6, pady=4)
         add_help(runtime, 'Prevents automatic system sleep while OCR or TTS is running. It does not block manual sleep, shutdown or lid-close actions.', row=0, column=1, sticky='w', padx=(3, 8))
-        diagnostic_button = ttk.Button(runtime, text='Export diagnostic ZIP', command=self.export_diagnostics_action)
-        diagnostic_button.grid(row=0, column=2, sticky='w', padx=6, pady=4)
-        ttk.Button(runtime, text='Open diagnostics folder', command=self.open_diagnostics_folder).grid(row=0, column=3, sticky='w', padx=6, pady=4)
+        self.diagnostic_button = ttk.Button(runtime, text='Export diagnostic ZIP', command=self.export_diagnostics_action)
+        self.diagnostic_button.grid(row=0, column=2, sticky='w', padx=6, pady=4)
+        self.open_diagnostics_button = ttk.Button(runtime, text='Open diagnostics folder', command=self.open_diagnostics_folder)
+        self.open_diagnostics_button.grid(row=0, column=3, sticky='w', padx=6, pady=4)
         add_help(runtime, 'Exports a sanitized ZIP containing run.log and runtime summary. Book text, MP3 files, credentials and unnecessary absolute paths are excluded.', row=0, column=4, sticky='w', padx=(3, 8))
 
         self.status = ttk.Label(frame, text='Ready.')
@@ -595,6 +652,11 @@ class App:
             pitch=self.pitch.get(),
             volume=self.volume.get(),
         )
+
+    def _speech_request_snapshot(self) -> dict[str, object]:
+        """Read Tkinter values on the GUI thread before starting background work."""
+        controls = self._current_speech_controls()
+        return {**controls, 'keep_awake': bool(self.keep_awake.get())}
 
     def _set_speech_controls(self, controls: dict[str, str]) -> None:
         labels_by_id = {provider_id: label for label, provider_id in self.tts_engine_labels.items()}
@@ -729,7 +791,8 @@ class App:
             self.voice.set(names[0])
 
     def _refresh_voices(self, *, background: bool) -> None:
-        def work(): return refresh_voice_cache(self._tts_engine_id())
+        provider_id = self._tts_engine_id()
+        def work(): return refresh_voice_cache(provider_id)
         def done(voices):
             self.voice_records = voices; self._apply_voice_filter(); self.status.config(text=f'Voice list refreshed: {len(voices)} voices.')
         if background:
@@ -766,42 +829,70 @@ class App:
         threading.Thread(target=worker, daemon=True).start()
 
     def _progress_event(self, payload: dict) -> None:
+        state = str(payload.get('state') or '')
+        index = int(payload.get('index') or 0)
+        if state == 'provider-status':
+            self.telemetry_mailbox.publish(payload)
+            return
+        if index > 0 and state in {'running', 'retrying'}:
+            self.telemetry_mailbox.reopen(index)
+        elif index > 0 and state in {'validating', 'done', 'failed'}:
+            self.telemetry_mailbox.mark_terminal(index)
         self.events.put(('progress', 'Synthesis', payload, None))
 
     def _drain(self) -> None:
-        try:
-            while True:
+        """Drain bounded control work, then apply latest-only Provider snapshots.
+
+        Every callback yields to Tk quickly. This prevents audio-chunk telemetry from
+        starving the Windows message pump while keeping the current Provider state
+        visible.
+        """
+        started = time.monotonic()
+        processed = 0
+        while processed < CONTROL_EVENTS_PER_DRAIN:
+            if time.monotonic() - started >= CONTROL_DRAIN_TIME_BUDGET_SECONDS:
+                break
+            try:
                 kind, label, payload, callback = self.events.get_nowait()
-                if kind == 'progress': self._update_part_progress(payload); continue
-                if kind == 'process':
-                    self._handle_process_trace(payload)
-                    continue
-                if kind == 'silent-ok':
-                    if callback: callback(payload)
-                    continue
-                if kind == 'silent-error':
-                    self._log_event(f'{label}: {payload}')
-                    continue
-                self.busy.finish(); self._set_actions_enabled(True)
-                if kind == 'error':
+            except queue.Empty:
+                break
+            processed += 1
+            if kind == 'progress':
+                self._update_part_progress(payload)
+                continue
+            if kind == 'process':
+                self._handle_process_trace(payload)
+                continue
+            if kind == 'silent-ok':
+                if callback:
+                    callback(payload)
+                continue
+            if kind == 'silent-error':
+                self._log_event(f'{label}: {payload}')
+                continue
+            self.busy.finish()
+            self._set_actions_enabled(True)
+            if kind == 'error':
+                self.status.config(text=f'Failed: {label}')
+                self._log_event(f'Failed: {label} · {payload}')
+                messagebox.showerror(label, payload)
+            else:
+                failures = payload.get('failures') if isinstance(payload, dict) else None
+                if failures:
                     self.status.config(text=f'Failed: {label}')
-                    self._log_event(f'Failed: {label} · {payload}')
-                    messagebox.showerror(label, payload)
+                    detail = str(failures[0].get('switch_recommendation') or failures[0].get('error') or failures[0])
+                    self._log_event(f'Failed: {label} · {detail}')
+                    messagebox.showerror(label, detail)
                 else:
-                    failures = payload.get('failures') if isinstance(payload, dict) else None
-                    if failures:
-                        self.status.config(text=f'Failed: {label}')
-                        detail = str(failures[0].get('switch_recommendation') or failures[0].get('error') or failures[0])
-                        self._log_event(f'Failed: {label} · {detail}')
-                        messagebox.showerror(label, detail)
-                    else:
-                        self.status.config(text=f'Completed: {label}')
-                        self._log_event(f'Completed: {label}')
-                        if callback: callback(payload)
-                        self._refresh_job_view()
-                self._render_workflow_state()
-        except queue.Empty: pass
-        self.root.after(100, self._drain)
+                    self.status.config(text=f'Completed: {label}')
+                    self._log_event(f'Completed: {label}')
+                    if callback:
+                        callback(payload)
+                    self._refresh_job_view()
+            self._render_workflow_state()
+        for telemetry in self.telemetry_mailbox.take_latest(limit=TELEMETRY_SNAPSHOTS_PER_DRAIN):
+            self._update_provider_telemetry(telemetry)
+        self.root.after(GUI_DRAIN_INTERVAL_MS, self._drain)
 
     def _handle_process_trace(self, payload: dict[str, object]) -> None:
         phase = str(payload.get('phase') or '')
@@ -992,6 +1083,19 @@ class App:
             self.status.config(text='Export verification FAILED')
             self._log_event(f'Export verification FAILED: {error}')
 
+    def _update_provider_telemetry(self, payload: dict[str, object]) -> None:
+        """Render one latest-only Provider snapshot without a heavyweight job refresh."""
+        index = int(payload.get('index') or 0)
+        if index <= 0 or self.current_index != index or self.current_started_monotonic is None:
+            return
+        self.provider_runtime = dict(payload)
+        self.provider_runtime['_ui_received_monotonic'] = time.monotonic()
+        elapsed = max(0.0, time.monotonic() - self.current_started_monotonic)
+        runtime_text = self._provider_runtime_text(elapsed)
+        self.current_label.config(text=f'Part {index:04d} / current · {self.current_estimate}% estimated · {runtime_text}')
+        self._set_part_state(index, f'RUNNING · {self.current_estimate}% estimated · {runtime_text}', highlight='running')
+        self.status.config(text=f'Part {index:04d}: {runtime_text}')
+
     def _update_part_progress(self, payload: dict) -> None:
         if payload.get('event') == 'export':
             self._update_export_progress(payload)
@@ -1015,14 +1119,8 @@ class App:
             self._log_progress_bucket(index, state, self.current_estimate)
             self.root.after(700, lambda: self._estimate_tick(token))
         elif state == 'provider-status':
-            self.provider_runtime = dict(payload)
-            self.provider_runtime['_ui_received_monotonic'] = time.monotonic()
-            if self.current_index == index and self.current_started_monotonic is not None:
-                elapsed = max(0.0, time.monotonic() - self.current_started_monotonic)
-                runtime_text = self._provider_runtime_text(elapsed)
-                self.current_label.config(text=f'Part {index:04d} / current · {self.current_estimate}% estimated · {runtime_text}')
-                self._set_part_state(index, f'RUNNING · {self.current_estimate}% estimated · {runtime_text}', highlight='running')
-                self.status.config(text=f'Part {index:04d}: {runtime_text}')
+            self._update_provider_telemetry(payload)
+            return
         elif state == 'retry-wait':
             delay = float(payload.get('retry_delay_seconds') or 0.0)
             self.provider_runtime = {'provider_id': self._tts_engine_id(), 'stage': 'retry-wait', 'attempt': int(payload.get('attempt') or 1), 'bytes_received': 0, 'last_audio_seconds_ago': 0.0}
@@ -1094,7 +1192,9 @@ class App:
         if not self.ocr_analysis:
             messagebox.showerror('OCR not analyzed', 'Run Analyze source first.'); return
         provider = self._selected_ocr_provider()
-        self._run('Preview OCR sample', lambda: preview_sample_ocr(Path(self.source.get()), self.ocr_analysis, provider_id=provider))
+        source = Path(self.source.get())
+        analysis = self.ocr_analysis
+        self._run('Preview OCR sample', lambda: preview_sample_ocr(source, analysis, provider_id=provider))
 
     def run_ocr(self) -> None:
         if not self.ocr_analysis:
@@ -1104,18 +1204,25 @@ class App:
             messagebox.showinfo('OCR not required', 'OCR is not required for this source. The usable native text layer will be preserved.')
             self._log_event('OCR not required. Native text layer preserved.')
             return
+        source = Path(self.source.get())
+        keep_awake = bool(self.keep_awake.get())
+        analysis = self.ocr_analysis
         output_dir = Path(self.work_root.get()) / '_ocr_outputs'
         def done(path: Path):
             self.source.set(str(path)); self.ocr_status.config(text='Status: OCR output ready · select Prepare text')
             self.ocr_reason.config(text=f'OCR output selected as the new source: {path}')
-        self._run('Run recommended OCR', lambda: run_recommended_ocr(Path(self.source.get()), self.ocr_analysis, output_dir=output_dir, provider_id=provider, keep_awake=self.keep_awake.get()), done)
+        self._run('Run recommended OCR', lambda: run_recommended_ocr(source, analysis, output_dir=output_dir, provider_id=provider, keep_awake=keep_awake), done)
 
     def prepare(self) -> None:
         value = self.source.get().strip()
         if not value: messagebox.showerror('No book', 'Select a book first.'); return
         self._save_runtime_cfg(); self._reset_part_view()
+        work_root = Path(self.work_root.get())
+        export_root = Path(self.export_root.get())
+        processing_profile = self._profile_id()
+        dictionary_path = self._dict()
         def work():
-            self.job = prepare_job(Path(value), work_root=Path(self.work_root.get()), export_root=Path(self.export_root.get()), processing_profile=self._profile_id(), dictionary_path=self._dict())
+            self.job = prepare_job(Path(value), work_root=work_root, export_root=export_root, processing_profile=processing_profile, dictionary_path=dictionary_path)
             return job_status(self.job)
         self._run('Prepare text', work)
 
@@ -1125,11 +1232,15 @@ class App:
 
     def approve_proofread(self) -> None:
         job = self._job_required()
-        if job: self._run('Approve reviewed text & rebuild', lambda: approve_proofread_and_rebuild(job, dictionary_path=self._dict()))
+        if job:
+            dictionary_path = self._dict()
+            self._run('Approve reviewed text & rebuild', lambda: approve_proofread_and_rebuild(job, dictionary_path=dictionary_path))
 
     def apply_cleanup(self, kind: str) -> None:
         job = self._job_required()
-        if job: self._run(f'Apply cleanup: {kind}', lambda: apply_cleanup_and_rebuild(job, kind=kind, dictionary_path=self._dict()))
+        if job:
+            dictionary_path = self._dict()
+            self._run(f'Apply cleanup: {kind}', lambda: apply_cleanup_and_rebuild(job, kind=kind, dictionary_path=dictionary_path))
 
     def apply_all_cleanup(self) -> None:
         job = self._job_required()
@@ -1139,40 +1250,62 @@ class App:
         if analysis.get('repeated_headers_and_junk', {}).get('status') == 'recommended': kinds.append('repeated-headers-and-junk')
         if analysis.get('metadata_datetime_tags', {}).get('status') == 'recommended': kinds.append('metadata-date-time-tags')
         if not kinds: messagebox.showinfo('Cleanup', 'No high-confidence cleanup is recommended.'); return
+        dictionary_path = self._dict()
         def work():
             reports=[]
-            for kind in kinds: reports.append(apply_cleanup_and_rebuild(job, kind=kind, dictionary_path=self._dict()))
+            for kind in kinds: reports.append(apply_cleanup_and_rebuild(job, kind=kind, dictionary_path=dictionary_path))
             return reports
         self._run('Apply all recommended cleanup', work)
 
     def audition(self) -> None:
-        self._save_runtime_cfg(); output_dir = Path(self.work_root.get()) / '_audition'
-        self._run('Audition voice', lambda: self._play(audition_sample(provider_id=self._tts_engine_id(), voice=self.voice.get(), rate=self.rate.get(), pitch=self.pitch.get(), volume=self.volume.get(), output_dir=output_dir)))
+        self._save_runtime_cfg()
+        output_dir = Path(self.work_root.get()) / '_audition'
+        request = self._speech_request_snapshot()
+        def done(path: Path) -> None:
+            self._play(Path(path))
+        self._run('Audition voice', lambda: audition_sample(output_dir=output_dir, **request), done)
 
     def _play(self, path: Path) -> str:
-        os.startfile(path) if os.name == 'nt' else subprocess.Popen(['xdg-open', str(path)]); return str(path)
+        os.startfile(path) if os.name == 'nt' else subprocess.Popen(['xdg-open', str(path)])
+        return str(path)
 
     def preview(self) -> None:
         job = self._job_required()
-        if not job: return
+        if not job:
+            return
+        request = self._speech_request_snapshot()
+        self.preview_playback_token += 1
+        playback_token = self.preview_playback_token
         def work():
-            result=synthesize_parts(job, provider_id=self._tts_engine_id(), voice=self.voice.get(), rate=self.rate.get(), pitch=self.pitch.get(), volume=self.volume.get(), start=1, end=1, require_preview_approval=False, progress=self._progress_event, keep_awake=self.keep_awake.get())
-            if not result['failures']: self._play(job.parts_audio / 'part-0001.mp3')
-            return result
-        self._run('Preview Part 1', work)
+            return synthesize_parts(
+                job, start=1, end=1, require_preview_approval=False,
+                progress=self._progress_event, **request,
+            )
+        def done(result: dict) -> None:
+            if result.get('failures') or playback_token == self.last_played_preview_token:
+                return
+            self.last_played_preview_token = playback_token
+            self._play(job.parts_audio / 'part-0001.mp3')
+        self._run('Preview Part 1', work, done)
 
     def approve_part_one(self) -> None:
-        job=self._job_required()
-        if job: self._run('Approve Part 1', lambda: approve_preview(job, provider_id=self._tts_engine_id(), voice=self.voice.get(), rate=self.rate.get(), pitch=self.pitch.get(), volume=self.volume.get()))
+        job = self._job_required()
+        if job:
+            controls = self._current_speech_controls()
+            self._run('Approve Part 1', lambda: approve_preview(job, **controls))
 
     def synthesize(self) -> None:
-        job=self._job_required()
-        if not job or not messagebox.askyesno('Synthesize all parts', 'Synthesize all manifest-declared parts now?'): return
-        self._run('Synthesize all parts', lambda: synthesize_parts(job, provider_id=self._tts_engine_id(), voice=self.voice.get(), rate=self.rate.get(), pitch=self.pitch.get(), volume=self.volume.get(), progress=self._progress_event, keep_awake=self.keep_awake.get()))
+        job = self._job_required()
+        if not job or not messagebox.askyesno('Synthesize all parts', 'Synthesize all manifest-declared parts now?'):
+            return
+        request = self._speech_request_snapshot()
+        self._run('Synthesize all parts', lambda: synthesize_parts(job, progress=self._progress_event, **request))
 
     def retry_failed(self) -> None:
-        job=self._job_required()
-        if job: self._run('Retry failed parts', lambda: retry_failed_parts(job, provider_id=self._tts_engine_id(), voice=self.voice.get(), rate=self.rate.get(), pitch=self.pitch.get(), volume=self.volume.get(), progress=self._progress_event, keep_awake=self.keep_awake.get()))
+        job = self._job_required()
+        if job:
+            request = self._speech_request_snapshot()
+            self._run('Retry failed parts', lambda: retry_failed_parts(job, progress=self._progress_event, **request))
 
     def merge(self) -> None:
         job=self._job_required()
@@ -1262,19 +1395,11 @@ class App:
         if not self.job:
             return
         self._log_event(f'Resume requested. Validating checkpoint and continuing from Part {next_part}.')
+        job = self.job
+        request = self._speech_request_snapshot()
         self._run(
             f'Resume synthesis from Part {next_part}',
-            lambda: synthesize_parts(
-                self.job,
-                provider_id=self._tts_engine_id(),
-                voice=self.voice.get(),
-                rate=self.rate.get(),
-                pitch=self.pitch.get(),
-                volume=self.volume.get(),
-                start=next_part,
-                progress=self._progress_event,
-                keep_awake=self.keep_awake.get(),
-            ),
+            lambda: synthesize_parts(job, start=next_part, progress=self._progress_event, **request),
         )
 
     def _start_guided_voice_check(self, next_part: int) -> None:

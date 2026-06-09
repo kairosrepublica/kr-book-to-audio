@@ -17,7 +17,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 datas = collect_data_files('kr_book_to_audio')
-hiddenimports = collect_submodules('edge_tts')
+hiddenimports = collect_submodules('edge_tts') + ['kr_book_to_audio.gui_runtime_probe']
 
 a = Analysis(
     [str(ENTRY)],

@@ -68,3 +68,7 @@ The portable application does not embed large Local Provider models. The governe
 ## Windows-safe model bootstrap
 
 Model bootstrap uses no-symlink Hugging Face acquisition and persistent `_Resource` staging. Administrator privileges and Windows Developer Mode are not required.
+
+## v2.4.1 GUI responsiveness validation
+
+Portable publication now runs an additional packaged Windows GUI responsiveness probe. The probe injects 100,000 streaming telemetry updates from a background producer and verifies that the real Tk event loop continues heartbeating, processes a scheduled close request promptly and leaves diagnostics controls available.

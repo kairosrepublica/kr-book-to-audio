@@ -232,10 +232,11 @@ def _provider_progress_bridge(
     provider_id: str,
 ) -> Callable[[dict[str, object]], None]:
     last_logged_monotonic = 0.0
+    last_ui_emit_monotonic = 0.0
     last_stage = ''
 
     def callback(payload: dict[str, object]) -> None:
-        nonlocal last_logged_monotonic, last_stage
+        nonlocal last_logged_monotonic, last_ui_emit_monotonic, last_stage
         now = time.monotonic()
         telemetry = {
             'provider_id': str(payload.get('provider_id') or provider_id),
@@ -253,7 +254,10 @@ def _provider_progress_bridge(
             save_manifest(job, manifest)
             last_logged_monotonic = now
             last_stage = telemetry['stage']
-        _emit(progress, state='provider-status', estimated_percent=0, **telemetry)
+        ui_due = stage_changed or now - last_ui_emit_monotonic >= 0.20 or telemetry['stage'] == 'provider-completed'
+        if ui_due:
+            _emit(progress, state='provider-status', estimated_percent=0, **telemetry)
+            last_ui_emit_monotonic = now
 
     return callback
 

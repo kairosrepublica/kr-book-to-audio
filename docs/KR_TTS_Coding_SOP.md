@@ -254,3 +254,17 @@ Before installing a Local Provider dependency, verify its Python compatibility r
 3. Preserve incomplete staging data after a failed acquisition so a later run can resume.
 4. Promote only complete verified snapshots into the formal archive.
 5. Delete the staging tree only after formal archive promotion succeeds.
+
+## v2.4.1 GUI responsiveness gate
+
+1. Never forward every low-level Provider chunk into an unbounded Tkinter queue.
+2. Store high-frequency telemetry as latest-only snapshots with fixed memory.
+3. Keep ordered terminal and control transitions in a separate bounded queue.
+4. Limit both event count and elapsed milliseconds in every GUI drain callback.
+5. Yield back to the Tk main loop after every bounded drain cycle.
+6. Do not perform full job-view refreshes for telemetry-only changes.
+7. Snapshot Tkinter control values on the GUI thread before starting background workers.
+8. Dispatch Preview playback from a GUI success callback only once.
+9. Emit heartbeat telemetry for long-running Kokoro Local worker execution.
+10. Terminate and then kill a hung local worker after the bounded deadline.
+11. Require the packaged Windows GUI responsiveness probe before Release.

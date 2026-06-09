@@ -31,6 +31,19 @@ def run_smoke(exe: Path, evidence: Path) -> dict:
         raise RuntimeError(f'Portable smoke-test report rejected: {report}')
     return report
 
+
+def run_gui_responsiveness_probe(exe: Path, evidence: Path) -> dict:
+    evidence.unlink(missing_ok=True)
+    result = subprocess.run([str(exe), '--gui-responsiveness-probe', str(evidence)], check=False, timeout=30)
+    if result.returncode != 0:
+        raise RuntimeError(f'Portable GUI responsiveness probe failed: returncode={result.returncode}')
+    if not evidence.exists():
+        raise RuntimeError('Portable GUI responsiveness probe evidence was not written.')
+    report = json.loads(evidence.read_text(encoding='utf-8'))
+    if not report.get('ok'):
+        raise RuntimeError(f'Portable GUI responsiveness report rejected: {report}')
+    return report
+
 def build_zip(dist_dir: Path, output_zip: Path) -> Path:
     output_zip.parent.mkdir(parents=True, exist_ok=True)
     output_zip.unlink(missing_ok=True)
@@ -53,7 +66,9 @@ def main() -> int:
     if not pe['has_icon_resource']: raise RuntimeError(f'Expected embedded icon resource: {pe}')
     smoke_evidence=args.evidence.with_name(args.evidence.stem+'-runtime.json')
     smoke=run_smoke(exe, smoke_evidence)
-    report={'ok':True,'exe':str(exe.resolve()),'pe':pe,'smoke':smoke}
+    responsiveness_evidence=args.evidence.with_name(args.evidence.stem+'-gui-responsiveness.json')
+    responsiveness=run_gui_responsiveness_probe(exe, responsiveness_evidence)
+    report={'ok':True,'exe':str(exe.resolve()),'pe':pe,'smoke':smoke,'gui_responsiveness':responsiveness}
     args.evidence.parent.mkdir(parents=True,exist_ok=True)
     args.evidence.write_text(json.dumps(report,indent=2,sort_keys=True)+'\n',encoding='utf-8',newline='\n')
     if args.portable_zip: build_zip(args.dist_dir,args.portable_zip)

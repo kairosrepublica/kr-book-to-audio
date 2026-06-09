@@ -45,8 +45,13 @@ def write_portable_smoke_report(path: Path) -> dict:
 def portable_main(argv: list[str] | None = None) -> int | None:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument('--portable-smoke-test', type=Path)
+    parser.add_argument('--gui-responsiveness-probe', type=Path)
     args, _unknown = parser.parse_known_args(argv)
-    if not args.portable_smoke_test:
-        return None
-    write_portable_smoke_report(args.portable_smoke_test)
-    return 0
+    if args.gui_responsiveness_probe:
+        from .gui_runtime_probe import run_gui_responsiveness_probe
+        run_gui_responsiveness_probe(args.gui_responsiveness_probe)
+        return 0
+    if args.portable_smoke_test:
+        write_portable_smoke_report(args.portable_smoke_test)
+        return 0
+    return None

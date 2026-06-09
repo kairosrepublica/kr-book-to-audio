@@ -10,7 +10,7 @@ import shutil
 import sys
 import tempfile
 import time
-from .subprocess_utils import run_hidden_cli
+from .subprocess_utils import popen_hidden_cli, run_hidden_cli
 
 ProviderProgressCallback = Callable[[dict[str, object]], None]
 EDGE_NO_AUDIO_TIMEOUT_SECONDS = float(os.environ.get('KR_B2A_EDGE_NO_AUDIO_TIMEOUT_SECONDS', '120'))
@@ -292,25 +292,63 @@ class KokoroLocalProvider(TTSProvider):
             }
             request_path = Path(temp_dir) / 'request.json'
             request_path.write_text(json.dumps(request, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-            result = run_hidden_cli(
-                [str(foundation.python), str(foundation.worker), '--request', str(request_path)],
-                capture_output=True,
-                text=True,
-                check=False,
-                env=foundation.worker_env(),
-                timeout=float(os.environ.get('KR_B2A_KOKORO_TOTAL_TIMEOUT_SECONDS', '1800')),
-            )
-            if result.returncode != 0:
+            worker_timeout = float(os.environ.get('KR_B2A_KOKORO_TOTAL_TIMEOUT_SECONDS', '1800'))
+            stdout_path = Path(temp_dir) / 'worker.stdout.txt'
+            stderr_path = Path(temp_dir) / 'worker.stderr.txt'
+            with stdout_path.open('w', encoding='utf-8') as stdout_handle, stderr_path.open('w', encoding='utf-8') as stderr_handle:
+                process = popen_hidden_cli(
+                    [str(foundation.python), str(foundation.worker), '--request', str(request_path)],
+                    stdout=stdout_handle,
+                    stderr=stderr_handle,
+                    text=True,
+                    env=foundation.worker_env(),
+                )
+                while process.poll() is None:
+                    elapsed = time.monotonic() - started
+                    if elapsed >= worker_timeout:
+                        process.terminate()
+                        try:
+                            process.wait(timeout=3.0)
+                        except Exception:
+                            process.kill()
+                            process.wait(timeout=3.0)
+                        out_path.unlink(missing_ok=True)
+                        raise ProviderTimedOut(
+                            f'Kokoro Local exceeded the total Part timeout of {int(worker_timeout)} seconds. '
+                            'The local worker was terminated safely. Try a shorter Part or inspect the diagnostic ZIP.'
+                        )
+                    _emit(
+                        progress,
+                        provider_id=self.spec.provider_id,
+                        stage='local-worker-running',
+                        elapsed_seconds=round(elapsed, 3),
+                        bytes_received=int(wav_path.stat().st_size) if wav_path.exists() else 0,
+                        last_audio_seconds_ago=0.0,
+                    )
+                    time.sleep(1.0)
+                returncode = int(process.returncode or 0)
+            stdout = stdout_path.read_text(encoding='utf-8', errors='replace') if stdout_path.exists() else ''
+            stderr = stderr_path.read_text(encoding='utf-8', errors='replace') if stderr_path.exists() else ''
+            if returncode != 0:
                 out_path.unlink(missing_ok=True)
-                detail = (result.stderr or result.stdout or '').strip()
+                detail = (stderr or stdout or '').strip()
                 raise ProviderUnavailable(f'Kokoro Local worker failed: {detail or "unknown error"}')
             if not wav_path.exists() or wav_path.stat().st_size <= 0:
                 raise ProviderUnavailable('Kokoro Local worker completed without writing WAV output.')
+            _emit(
+                progress,
+                provider_id=self.spec.provider_id,
+                stage='local-worker-encoding',
+                elapsed_seconds=round(time.monotonic() - started, 3),
+                bytes_received=int(wav_path.stat().st_size),
+                last_audio_seconds_ago=0.0,
+            )
             encoded = run_hidden_cli(
                 ['ffmpeg', '-y', '-v', 'error', '-i', str(wav_path), '-codec:a', 'libmp3lame', '-q:a', '2', str(out_path)],
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=float(os.environ.get('KR_B2A_FFMPEG_ENCODE_TIMEOUT_SECONDS', '180')),
             )
             if encoded.returncode != 0:
                 out_path.unlink(missing_ok=True)
