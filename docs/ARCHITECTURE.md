@@ -186,3 +186,18 @@ The primary screen no longer exposes manual export verification or raw job-folde
 The SQLite layer uses WAL journaling, synchronous FULL durability, bounded busy waiting, monotonic revisions and a single-writer lease. MP3 files remain ordinary files. Export finalization reuses trusted validation receipts to avoid redundant ffprobe launches.
 
 The GUI computes an adaptive initial geometry and uses a vertically scrollable root container so smaller displays retain access to every workflow control.
+
+## Istanbul Release v2.3.1 fixed-shell contract
+
+The desktop window is a fixed shell. The shell contains one scrollable internal workflow viewport and one Footer outside that viewport. The Footer retains the existing copyright and Constantinople signature text and must remain visible while the internal workflow scrolls.
+
+The deterministic desktop geometry contract is:
+
+```text
+default width: 1200 px
+minimum width: 1150 px
+active screen height > 1900 px: default height = 1900 px
+smaller screen: clamp height inside the active display with a safety margin
+```
+
+Mouse-wheel and touchpad events scroll the outer workflow viewport unless the pointer is above an inner widget with native scrolling behavior, including the Run log, Recent jobs, Part status or a combobox.

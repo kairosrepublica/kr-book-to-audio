@@ -3,13 +3,22 @@
 **Possibly the world's best book-to-audio conversion software.**<br>
 **可能是全世界最好用的 Book-to-Audio 轉換軟體。**
 
-![KR Book To Audio desktop GUI](docs/images/kr_book_to_audio_gui_istanbul_release_2_0.png)
-
 Built by Kent Reis from Constantinople with love. AD May 20, 2026
 
 Copyright © Kent Reis & Kairos República
 
 It converts text-layer PDF, EPUB, MOBI or PalmDOC-compatible AZW or PRC, DOCX, TXT and Markdown sources into independently recoverable MP3 parts and an optional merged MP3 audiobook.
+
+## Istanbul Release v2.3.1
+
+This desktop-shell patch keeps the v2.3.0 durable-state engine unchanged while tightening the presentation layer:
+
+- the default desktop size is 1200 px wide and exactly 1900 px high when the active screen height exceeds 1900 px;
+- the minimum desktop width is 1150 px so controls do not collapse into unreadable layouts;
+- the bottom copyright and Constantinople signature remain permanently fixed outside the scroll viewport;
+- only the internal workflow surface scrolls;
+- mouse-wheel and touchpad scrolling move the outer workflow viewport while native scrolling remains available inside Run log, Part status, Recent jobs and combobox controls;
+- the README no longer opens with an outdated hero screenshot, while historical screenshots remain preserved below.
 
 ## Istanbul Release v2.3.0
 
@@ -25,7 +34,7 @@ This reliability architecture release replaces the single JSON job-state authori
 - OCR actions become informational no-ops when a usable native text layer already exists;
 - the initial desktop height adapts to the current screen, using 1900 px on the Owner 2160p display and a vertically scrollable compact layout on smaller screens.
 
-## Historical interface evidence
+## Historical interface
 
 The following screenshot records the real Owner-machine Istanbul Release v2.1.0 interface immediately before the SQLite durable-state and responsive-layout upgrade:
 
@@ -43,7 +52,7 @@ This workflow and desktop-process reliability release removes visible child-cons
 - export finalization and verification remain mandatory but are fully automatic; the manual **Verify export** button is removed from the normal interface;
 - manual job-folder loading moves under **Advanced recovery…**, reserved for a task missing from Recent jobs.
 
-## Historical interface evidence
+## Historical interface
 
 The following screenshot records the real Owner-machine Istanbul Release v2.0.1 interface before the v2.1.0 workflow-layout refactor:
 

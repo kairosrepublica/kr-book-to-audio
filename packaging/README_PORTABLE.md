@@ -32,3 +32,7 @@ Console-style external tools launch through the governed hidden-window adapter o
 ## v2.3.0 durable-state note
 
 Each task owns a local SQLite state database under `_work\state`. The portable application migrates legacy JSON-only jobs automatically and preserves readable snapshots for debugging.
+
+## v2.3.1 desktop-shell note
+
+The normal desktop starts at 1200 px wide, enforces a 1150 px minimum width and starts at exactly 1900 px high on displays taller than 1900 px. The Footer remains fixed while the internal workflow viewport supports mouse-wheel and touchpad scrolling.

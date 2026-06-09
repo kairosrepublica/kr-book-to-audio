@@ -52,6 +52,10 @@ class GuiSurfaceTests(unittest.TestCase):
         self.assertIn("'running': {'bg': '#f4a261'", source)
         self.assertIn("'next': {'bg': '#fff3cd'", source)
         self.assertIn("'failed': {'bg': '#f8d7da'", source)
+        self.assertIn("self.root.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)", source)
+        self.assertIn("footer = ttk.Frame(self.shell, padding=(12, 2))", source)
+        self.assertNotIn("footer = ttk.Frame(frame)", source)
+        self.assertIn("self._bind_mousewheel()", source)
 
 
 if __name__ == '__main__':

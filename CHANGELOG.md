@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.3.1 — Istanbul Release v2.3.1
+
+- Removed the outdated top README hero screenshot while preserving historical interface evidence below.
+- Renamed all historical screenshot sections to `Historical interface`.
+- Set the deterministic normal desktop width to 1200 px and minimum width to 1150 px.
+- Set the initial height to exactly 1900 px whenever the active screen height exceeds 1900 px.
+- Moved the copyright and Constantinople signature Footer outside the scroll viewport so the shell Footer remains fixed.
+- Added mouse-wheel and touchpad scrolling for the outer workflow viewport without hijacking native scrolling in inner widgets.
+
 ## 2.3.0 — Istanbul Release v2.3.0
 
 - Added a per-job SQLite authoritative state engine with WAL, synchronous FULL, quick-check startup validation and monotonic revisions.

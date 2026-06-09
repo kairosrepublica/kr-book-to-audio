@@ -178,29 +178,58 @@ def add_help(parent: tk.Widget, text: str, **grid_options) -> ttk.Label:
 
 
 
+DEFAULT_WINDOW_WIDTH = 1200
+MIN_WINDOW_WIDTH = 1150
+MIN_WINDOW_HEIGHT = 520
+WINDOW_SAFE_WIDTH_MARGIN = 80
+WINDOW_SAFE_HEIGHT_MARGIN = 120
+LARGE_SCREEN_HEIGHT_THRESHOLD = 1900
+LARGE_WINDOW_HEIGHT = 1900
+
+
 def compute_window_geometry(screen_width: int, screen_height: int, saved: str | None = None) -> tuple[str, str]:
-    """Return a visible initial geometry and responsive layout mode."""
-    safe_w = max(900, int(screen_width) - 80)
-    safe_h = max(640, int(screen_height) - 120)
-    if screen_height >= 1800:
+    """Return a deterministic visible initial geometry and responsive layout mode.
+
+    Width is intentionally constrained for readability: the normal desktop starts
+    at 1200 px and may never shrink below 1150 px. Screens narrower than that
+    physical minimum cannot contain the full desktop shell without overflow.
+    """
+    screen_width = int(screen_width)
+    screen_height = int(screen_height)
+    max_visible_width = max(MIN_WINDOW_WIDTH, screen_width - WINDOW_SAFE_WIDTH_MARGIN)
+    max_visible_height = max(MIN_WINDOW_HEIGHT, screen_height - WINDOW_SAFE_HEIGHT_MARGIN)
+    width = min(DEFAULT_WINDOW_WIDTH, max_visible_width)
+    if screen_height > LARGE_SCREEN_HEIGHT_THRESHOLD:
         mode = 'expanded'
-        width = min(1700, safe_w)
-        height = min(1900, safe_h)
+        height = LARGE_WINDOW_HEIGHT
     elif screen_height >= 1000:
         mode = 'medium'
-        width = min(1500, safe_w)
-        height = min(1120, safe_h)
+        height = max_visible_height
     else:
         mode = 'compact'
-        width = min(1280, safe_w)
-        height = safe_h
+        height = max_visible_height
     if saved:
         import re
         match = re.match(r'^(\d+)x(\d+)', str(saved))
         if match:
-            width = min(max(900, int(match.group(1))), safe_w)
-            height = min(max(640, int(match.group(2))), safe_h)
+            width = min(max(MIN_WINDOW_WIDTH, int(match.group(1))), max_visible_width)
+            height_limit = LARGE_WINDOW_HEIGHT if screen_height > LARGE_SCREEN_HEIGHT_THRESHOLD else max_visible_height
+            height = min(max(MIN_WINDOW_HEIGHT, int(match.group(2))), height_limit)
     return f'{width}x{height}', mode
+
+
+def wheel_scroll_units(delta: int) -> int:
+    """Translate Windows MouseWheel or touchpad delta into Canvas scroll units."""
+    delta = int(delta or 0)
+    if delta == 0:
+        return 0
+    magnitude = max(1, abs(delta) // 120)
+    return -magnitude if delta > 0 else magnitude
+
+
+def preserves_native_wheel(widget_class: str) -> bool:
+    """Return True when an inner widget should retain its native wheel behavior."""
+    return str(widget_class) in {'Text', 'Treeview', 'Listbox', 'TCombobox'}
 
 
 class App:
@@ -209,8 +238,9 @@ class App:
         self.root.title('KR Book To Audio')
         apply_window_icon(self.root)
         cfg = load_config()
-        geometry, self.layout_mode = compute_window_geometry(self.root.winfo_screenwidth(), self.root.winfo_screenheight(), cfg.get('window_geometry'))
+        geometry, self.layout_mode = compute_window_geometry(self.root.winfo_screenwidth(), self.root.winfo_screenheight(), cfg.get('window_geometry_v231'))
         self.root.geometry(geometry)
+        self.root.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)
         self.events: queue.Queue[tuple] = queue.Queue()
         self.job: JobPaths | None = None
         self.busy = BusyGuard()
@@ -262,7 +292,7 @@ class App:
 
     def _close(self) -> None:
         try:
-            cfg = load_config(); cfg['window_geometry'] = self.root.geometry(); save_config(cfg)
+            cfg = load_config(); cfg['window_geometry_v231'] = self.root.geometry(); save_config(cfg)
         finally:
             self.root.destroy()
 
@@ -275,11 +305,16 @@ class App:
         self.ocr_preview_button.config(state=state)
 
     def _build(self) -> None:
-        self.canvas = tk.Canvas(self.root, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(self.root, orient='vertical', command=self.canvas.yview)
+        self.shell = ttk.Frame(self.root)
+        self.shell.pack(fill='both', expand=True)
+        self.viewport = ttk.Frame(self.shell)
+        self.viewport.pack(side='top', fill='both', expand=True)
+        self.canvas = tk.Canvas(self.viewport, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(self.viewport, orient='vertical', command=self.canvas.yview)
         self.canvas.configure(yscrollcommand=scrollbar.set)
         self.canvas.pack(side='left', fill='both', expand=True)
         scrollbar.pack(side='right', fill='y')
+        self._bind_mousewheel()
         frame = ttk.Frame(self.canvas, padding=12)
         self.canvas_window = self.canvas.create_window((0, 0), window=frame, anchor='nw')
         frame.bind('<Configure>', lambda _event: self.canvas.configure(scrollregion=self.canvas.bbox('all')))
@@ -426,12 +461,41 @@ class App:
         self.current_progress.pack(fill='x', padx=5, pady=(3, 5))
         frame.rowconfigure(13, weight=1)
 
-        ttk.Separator(frame, orient='horizontal').grid(row=14, column=0, columnspan=6, sticky='ew', pady=(6, 2))
-        footer = ttk.Frame(frame)
-        footer.grid(row=15, column=0, columnspan=6, sticky='ew', pady=(0, 2))
+        footer = ttk.Frame(self.shell, padding=(12, 2))
+        footer.pack(side='bottom', fill='x')
         ttk.Label(footer, text='COPYRIGHT © KENT REIS & KAIROS REPÚBLICA').pack(side='left')
         ttk.Label(footer, text='BUILT IN CONSTANTINOPLE WITH LOVE').pack(side='right')
+        ttk.Separator(self.shell, orient='horizontal').pack(side='bottom', fill='x')
         self._render_workflow_state()
+
+    def _bind_mousewheel(self) -> None:
+        self.root.bind_all('<MouseWheel>', self._on_mousewheel, add='+')
+        self.root.bind_all('<Button-4>', self._on_linux_mousewheel, add='+')
+        self.root.bind_all('<Button-5>', self._on_linux_mousewheel, add='+')
+
+    @staticmethod
+    def _widget_class(widget: tk.Widget) -> str:
+        try:
+            return str(widget.winfo_class())
+        except Exception:
+            return ''
+
+    def _scroll_outer_viewport(self, units: int) -> str | None:
+        if not units:
+            return None
+        self.canvas.yview_scroll(int(units), 'units')
+        return 'break'
+
+    def _on_mousewheel(self, event) -> str | None:
+        if preserves_native_wheel(self._widget_class(event.widget)):
+            return None
+        return self._scroll_outer_viewport(wheel_scroll_units(getattr(event, 'delta', 0)))
+
+    def _on_linux_mousewheel(self, event) -> str | None:
+        if preserves_native_wheel(self._widget_class(event.widget)):
+            return None
+        number = int(getattr(event, 'num', 0) or 0)
+        return self._scroll_outer_viewport(-1 if number == 4 else (1 if number == 5 else 0))
 
     def _workflow_button(self, parent: tk.Widget, key: str, text: str, command, *, row: int, column: int) -> tk.Button:
         button = tk.Button(parent, text=text, command=command, relief='raised', padx=7, pady=3)
