@@ -1,3 +1,21 @@
+# Changelog
+
+## Istanbul Release v2.5.0
+
+- Added governed local OCR foundation for image-only PDFs.
+- Added PaddleOCR PP-OCRv5 server and mobile operational profiles.
+- Added Tesseract fast and best local fallback profiles with Poppler.
+- Added archive-first OCR resource governance under the Owner-private `_Resource` tree.
+- Use append-only immutable OCR archive bundles and versioned runtime deployments; activate a verified candidate through a small pointer only.
+- Do not delete, replace, move or quarantine historical Owner-local OCR directories during ordinary setup; emit manual-cleanup candidates for separate Owner review.
+- Added page-level OCR checkpoints and interrupted OCR Resume.
+- Added OCR foundation install / repair and OCR folder actions.
+- Verify archived OCR resources against SHA-256 receipts before reuse and deploy only verified archive copies.
+- Bind PaddleOCR server and mobile model names explicitly to matching local model directories.
+- Make portable OCR repair bootstrap through an external system Python interpreter without mutating Owner global Python, PATH or Registry state.
+- Removed the redundant confirmation dialog before `8. Synthesize all`.
+- Preserved unrelated v2.4.1 TTS, Resume, GUI responsiveness and flat Export behavior.
+
 ## 2.4.1 — Istanbul Release v2.4.1
 
 - Prevent streaming Provider telemetry from starving the Tkinter GUI event loop.

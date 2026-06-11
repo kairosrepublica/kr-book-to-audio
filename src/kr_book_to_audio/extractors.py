@@ -5,6 +5,7 @@ import html
 import locale
 import os
 import re
+import shutil
 import struct
 import zipfile
 from xml.etree import ElementTree as ET
@@ -211,6 +212,20 @@ def _decode_stdout(value: object) -> str:
     return raw.decode('utf-8', 'replace')
 
 
+def _pdf_tool(name: str) -> str:
+    found = shutil.which(name)
+    if found:
+        return name
+    try:
+        from .local_ocr import local_ocr_foundation
+        candidate = getattr(local_ocr_foundation(), name)
+        if Path(candidate).is_file():
+            return str(candidate)
+    except Exception:
+        pass
+    return require_command(name, 'install Poppler or run Install / repair local OCR foundation')
+
+
 def diagnose(path: Path) -> dict:
     ext = path.suffix.lower()
     if ext in {'.txt', '.md', '.docx', '.epub', '.mobi', '.azw', '.prc'}:
@@ -220,11 +235,11 @@ def diagnose(path: Path) -> dict:
                 'reason': 'AZW3 / Kindle Format 8 is intentionally rejected until a verified parser fixture exists.'}
     if ext != '.pdf':
         raise UnsupportedFormat(f'Unsupported input format: {ext or "<none>"}')
-    require_command('pdfinfo', 'install Poppler')
-    require_command('pdffonts', 'install Poppler')
-    require_command('pdftotext', 'install Poppler')
-    info_result = run_hidden_cli(['pdfinfo', str(path)], capture_output=True, check=False)
-    fonts_result = run_hidden_cli(['pdffonts', str(path)], capture_output=True, check=False)
+    pdfinfo = _pdf_tool('pdfinfo')
+    pdffonts = _pdf_tool('pdffonts')
+    pdftotext = _pdf_tool('pdftotext')
+    info_result = run_hidden_cli([pdfinfo, str(path)], capture_output=True, check=False)
+    fonts_result = run_hidden_cli([pdffonts, str(path)], capture_output=True, check=False)
     info = _decode_stdout(info_result.stdout)
     fonts = _decode_stdout(fonts_result.stdout)
     font_rows = [line for line in fonts.splitlines()[2:] if line.strip()]
@@ -233,7 +248,7 @@ def diagnose(path: Path) -> dict:
     sample_texts = []
     sample_pages = _pdf_sample_pages(page_count)
     for page in sample_pages:
-        result = run_hidden_cli(['pdftotext', '-f', str(page), '-l', str(page), '-layout', str(path), '-'], capture_output=True, check=False)
+        result = run_hidden_cli([pdftotext, '-f', str(page), '-l', str(page), '-layout', str(path), '-'], capture_output=True, check=False)
         if result.returncode == 0:
             sample_texts.append(_decode_stdout(result.stdout))
     sample = '\n'.join(sample_texts)
@@ -272,8 +287,8 @@ def extract(path: Path) -> str:
     if ext == '.azw3':
         raise UnsupportedFormat('AZW3 / Kindle Format 8 is not yet supported. Convert it to EPUB or MOBI first.')
     if ext == '.pdf':
-        require_command('pdftotext', 'install Poppler')
-        result = run_hidden_cli(['pdftotext', '-layout', str(path), '-'], capture_output=True, check=True)
+        pdftotext = _pdf_tool('pdftotext')
+        result = run_hidden_cli([pdftotext, '-layout', str(path), '-'], capture_output=True, check=True)
         return _decode_stdout(result.stdout)
     raise UnsupportedFormat(f'Unsupported input format: {ext or "<none>"}')
 
@@ -284,8 +299,8 @@ def book_title(path: Path) -> str:
         title = _epub_title(path)
     elif path.suffix.lower() == '.pdf':
         try:
-            require_command('pdfinfo')
-            output = _decode_stdout(run_hidden_cli(['pdfinfo', str(path)], capture_output=True, check=False).stdout)
+            pdfinfo = _pdf_tool('pdfinfo')
+            output = _decode_stdout(run_hidden_cli([pdfinfo, str(path)], capture_output=True, check=False).stdout)
             match = re.search(r'^Title:\s*(.+)$', output or '', flags=re.MULTILINE)
             if match:
                 title = match.group(1).strip()

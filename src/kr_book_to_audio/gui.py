@@ -19,6 +19,7 @@ from .diagnostics import diagnostics_root, export_diagnostic_zip
 from .recovery import recover_job, scan_and_recover_jobs
 from .models import JobPaths
 from .ocr import OCRAnalysis, analyze_source, preview_sample_ocr, run_recommended_ocr
+from .local_ocr import install_or_repair_foundation, local_ocr_foundation
 from .pipeline import approve_proofread_and_rebuild, apply_cleanup_and_rebuild, job_status, prepare_job
 from .providers import OCR_PROVIDER_SPECS, enabled_tts_specs
 from .subprocess_utils import process_trace
@@ -357,6 +358,7 @@ class App:
         self.preview_playback_token = 0
         self.last_played_preview_token = 0
         self.ocr_analysis: OCRAnalysis | None = None
+        self.ocr_last_output_dir: Path | None = None
         self.source = tk.StringVar()
         self.source_folder = str(cfg.get('source_folder', Path.home()))
         self.work_root = tk.StringVar(value=cfg.get('work_root', str(local_work_root())))
@@ -494,7 +496,17 @@ class App:
             self.action_buttons.append(btn)
             if label == 'Preview OCR sample': self.ocr_preview_button = btn
             if label == 'Run recommended OCR': self.ocr_run_button = btn
-        add_help(ocr, 'The advisor decides whether OCR is applicable or needed, discovers local engines and recommends a provider.', row=2, column=4, sticky='w')
+        add_help(ocr, 'The advisor decides whether OCR is applicable or needed, discovers governed local engines and recommends a Provider.', row=2, column=4, sticky='w')
+        self.ocr_install_button = ttk.Button(ocr, text='Install / repair local OCR foundation', command=self.install_or_repair_ocr)
+        self.ocr_install_button.grid(row=3, column=0, sticky='w', padx=6, pady=(0, 5))
+        self.action_buttons.append(self.ocr_install_button)
+        self.ocr_resource_button = ttk.Button(ocr, text='Open OCR resource folder', command=self.open_ocr_resource_folder)
+        self.ocr_resource_button.grid(row=3, column=1, sticky='w', padx=6, pady=(0, 5))
+        self.action_buttons.append(self.ocr_resource_button)
+        self.ocr_output_button = ttk.Button(ocr, text='Open OCR output folder', command=self.open_ocr_output_folder)
+        self.ocr_output_button.grid(row=3, column=2, sticky='w', padx=6, pady=(0, 5))
+        self.action_buttons.append(self.ocr_output_button)
+        add_help(ocr, 'OCR resources are archived under the Owner-governed _Resource tree first, then deployed into a rebuildable C:/dev runtime copy. Normal OCR execution is offline-only.', row=3, column=4, sticky='w')
         self.ocr_advanced = ttk.Frame(ocr)
         ttk.Label(self.ocr_advanced, text='OCR engine override').pack(side='left', padx=(6, 3))
         self.ocr_override_combo = ttk.Combobox(self.ocr_advanced, textvariable=self.ocr_override, state='readonly', width=46)
@@ -860,6 +872,9 @@ class App:
             if kind == 'progress':
                 self._update_part_progress(payload)
                 continue
+            if kind == 'ocr-progress':
+                self._update_ocr_progress(payload)
+                continue
             if kind == 'process':
                 self._handle_process_trace(payload)
                 continue
@@ -1165,6 +1180,48 @@ class App:
         if state not in {'provider-status'}:
             self.status.config(text=f'Part {index:04d}: {state}')
 
+    def _ocr_progress_event(self, payload: dict[str, object]) -> None:
+        self.events.put(('ocr-progress', 'OCR', payload, None))
+
+    def _update_ocr_progress(self, payload: dict[str, object]) -> None:
+        state = str(payload.get('state') or 'ocr-running').replace('-', ' ')
+        provider = str(payload.get('provider_id') or 'local-ocr')
+        page = int(payload.get('page') or 0)
+        completed = int(payload.get('completed_pages') or 0)
+        total = int(payload.get('total_pages') or 0)
+        elapsed = float(payload.get('elapsed_seconds') or 0.0)
+        average = float(payload.get('average_seconds_per_page') or 0.0)
+        remaining_raw = payload.get('estimated_remaining_seconds')
+        last_completed = int(payload.get('last_completed_page') or 0)
+        page_text = f'page {page} / {total}' if page else f'{completed} / {total} pages'
+        remaining = self._format_seconds(float(remaining_raw)) if remaining_raw is not None else 'calculating'
+        last_text = str(last_completed) if last_completed else 'none yet'
+        message = f'{provider} · {state} · {page_text} · elapsed {self._format_seconds(elapsed)} · average {average:.1f} sec/page · remaining {remaining} estimated · last completed {last_text} · checkpoint {completed} / {total}'
+        self.ocr_status.config(text='Status: ' + message)
+        self.status.config(text='OCR: ' + message)
+        if state in {'ocr page completed', 'ocr completed', 'ocr failed'}:
+            self._log_event('OCR: ' + message)
+
+    def install_or_repair_ocr(self) -> None:
+        def done(report: dict[str, object]) -> None:
+            self.ocr_reason.config(text=f'Local OCR foundation ready. Archive: {report.get("resource_root")} · runtime: {report.get("runtime_root")}')
+            if self.source.get().strip():
+                self.analyze_ocr()
+        self._run('Install / repair local OCR foundation', install_or_repair_foundation, done)
+
+    def open_ocr_resource_folder(self) -> None:
+        try:
+            open_in_file_manager(local_ocr_foundation().resource_root)
+        except Exception as exc:
+            messagebox.showerror('Open OCR resource folder', str(exc))
+
+    def open_ocr_output_folder(self) -> None:
+        path = self.ocr_last_output_dir or (Path(self.work_root.get()) / '_ocr_outputs')
+        try:
+            open_in_file_manager(path)
+        except Exception as exc:
+            messagebox.showerror('Open OCR output folder', str(exc))
+
     def analyze_ocr(self) -> None:
         value = self.source.get().strip()
         if not value: messagebox.showerror('No book', 'Select a book first.'); return
@@ -1180,7 +1237,7 @@ class App:
 
     def toggle_ocr_advanced(self) -> None:
         self.advanced_ocr_visible = not self.advanced_ocr_visible
-        if self.advanced_ocr_visible: self.ocr_advanced.grid(row=3, column=0, columnspan=5, sticky='w', pady=(0, 5))
+        if self.advanced_ocr_visible: self.ocr_advanced.grid(row=4, column=0, columnspan=6, sticky='w', pady=(0, 5))
         else: self.ocr_advanced.grid_forget()
 
     def _selected_ocr_provider(self) -> str | None:
@@ -1194,7 +1251,7 @@ class App:
         provider = self._selected_ocr_provider()
         source = Path(self.source.get())
         analysis = self.ocr_analysis
-        self._run('Preview OCR sample', lambda: preview_sample_ocr(source, analysis, provider_id=provider))
+        self._run('Preview OCR sample', lambda: preview_sample_ocr(source, analysis, provider_id=provider, progress=self._ocr_progress_event))
 
     def run_ocr(self) -> None:
         if not self.ocr_analysis:
@@ -1209,9 +1266,10 @@ class App:
         analysis = self.ocr_analysis
         output_dir = Path(self.work_root.get()) / '_ocr_outputs'
         def done(path: Path):
+            self.ocr_last_output_dir = Path(path).parent
             self.source.set(str(path)); self.ocr_status.config(text='Status: OCR output ready · select Prepare text')
             self.ocr_reason.config(text=f'OCR output selected as the new source: {path}')
-        self._run('Run recommended OCR', lambda: run_recommended_ocr(source, analysis, output_dir=output_dir, provider_id=provider, keep_awake=keep_awake), done)
+        self._run('Run recommended OCR', lambda: run_recommended_ocr(source, analysis, output_dir=output_dir, provider_id=provider, keep_awake=keep_awake, progress=self._ocr_progress_event), done)
 
     def prepare(self) -> None:
         value = self.source.get().strip()
@@ -1296,7 +1354,7 @@ class App:
 
     def synthesize(self) -> None:
         job = self._job_required()
-        if not job or not messagebox.askyesno('Synthesize all parts', 'Synthesize all manifest-declared parts now?'):
+        if not job:
             return
         request = self._speech_request_snapshot()
         self._run('Synthesize all parts', lambda: synthesize_parts(job, progress=self._progress_event, **request))

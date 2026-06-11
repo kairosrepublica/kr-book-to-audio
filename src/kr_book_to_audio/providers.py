@@ -411,159 +411,197 @@ class OCRProvider:
     def available(self) -> tuple[bool, str]:
         raise NotImplementedError
 
-    def recognize_pdf_to_text(self, source: Path, *, language: str, output_dir: Path, pages: Iterable[int] | None = None) -> str:
+    def recognize_pdf_to_text(
+        self,
+        source: Path,
+        *,
+        language: str,
+        output_dir: Path,
+        pages: Iterable[int] | None = None,
+        progress: ProviderProgressCallback | None = None,
+    ) -> str:
         raise NotImplementedError
 
 
 class PaddleOCRProvider(OCRProvider):
     page_checkpoint_capable = True
-    spec = ProviderSpec('paddleocr-ppocrv5', 'ocr', 'PaddleOCR · PP-OCRv5', 'local-python', 'enabled-when-discovered', True, notes='Local OCR provider. Models may download on first use.')
+
+    def __init__(self, profile: str = 'server') -> None:
+        self.profile = profile if profile in {'server', 'mobile'} else 'server'
+        provider_id = 'paddleocr-ppocrv5' if self.profile == 'server' else 'paddleocr-ppocrv5-mobile'
+        label = 'PaddleOCR PP-OCRv5 · server accuracy' if self.profile == 'server' else 'PaddleOCR PP-OCRv5 · mobile fallback'
+        self.spec = ProviderSpec(
+            provider_id,
+            'ocr',
+            label,
+            'local-process',
+            'enabled-when-installed',
+            True,
+            notes='Governed offline local OCR Provider. Models are archived before deployment and normal use is offline-only.',
+        )
+
+    @staticmethod
+    def _foundation():
+        from .local_ocr import local_ocr_foundation
+        return local_ocr_foundation()
 
     def available(self) -> tuple[bool, str]:
-        if importlib.util.find_spec('paddleocr') is None:
-            return False, 'Python package paddleocr is not installed.'
-        if not shutil.which('pdftoppm'):
-            return False, 'Poppler pdftoppm is not available on PATH.'
-        return True, 'PaddleOCR Python package and pdftoppm detected.'
+        foundation = self._foundation()
+        if foundation.paddle_ready(self.profile):
+            return True, f'PaddleOCR {self.profile} profile detected in the governed local OCR runtime.'
+        return False, f'PaddleOCR {self.profile} profile is not deployed. Use Install / repair local OCR foundation.'
 
-    @staticmethod
-    def _lang(language: str) -> str:
-        return {'chinese': 'ch', 'english': 'en', 'mixed': 'ch', 'other': 'en'}.get(language, 'ch')
+    def _recognize_image(self, image: Path, *, output_dir: Path) -> str:
+        foundation = self._foundation()
+        foundation.assert_paddle_ready(self.profile)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        det, rec = foundation.paddle_model_paths(self.profile)
+        request_path = output_dir / (image.stem + '.request.json')
+        response_path = output_dir / (image.stem + '.response.json')
+        request_path.write_text(json.dumps({
+            'image': str(image),
+            'output': str(response_path),
+            'text_detection_model_name': f'PP-OCRv5_{self.profile}_det',
+            'text_detection_model_dir': str(det),
+            'text_recognition_model_name': f'PP-OCRv5_{self.profile}_rec',
+            'text_recognition_model_dir': str(rec),
+        }, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+        result = run_hidden_cli(
+            [str(foundation.paddle_python), str(foundation.paddle_worker), '--request', str(request_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=foundation.offline_env(),
+            timeout=float(os.environ.get('KR_B2A_PADDLEOCR_PAGE_TIMEOUT_SECONDS', '600')),
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or '').strip()
+            raise ProviderUnavailable(f'PaddleOCR local worker failed: {detail or "unknown error"}')
+        if not response_path.is_file():
+            raise ProviderUnavailable('PaddleOCR local worker did not write a response JSON file.')
+        payload = json.loads(response_path.read_text(encoding='utf-8'))
+        return str(payload.get('text') or '')
 
-    @staticmethod
-    def _collect_strings(value: Any) -> list[str]:
-        out: list[str] = []
-        if isinstance(value, str):
-            return [value]
-        if isinstance(value, dict):
-            for key, item in value.items():
-                if key in {'rec_texts', 'texts'} and isinstance(item, list):
-                    out.extend(str(text) for text in item if str(text).strip())
-                elif key in {'text', 'rec_text'} and isinstance(item, str):
-                    out.append(item)
-                else:
-                    out.extend(PaddleOCRProvider._collect_strings(item))
-        elif isinstance(value, (list, tuple)):
-            if len(value) == 2 and isinstance(value[1], (list, tuple)) and value[1] and isinstance(value[1][0], str):
-                out.append(value[1][0])
-            else:
-                for item in value:
-                    out.extend(PaddleOCRProvider._collect_strings(item))
-        else:
-            maybe_json = getattr(value, 'json', None)
-            if maybe_json is not None:
-                try:
-                    decoded = json.loads(maybe_json) if isinstance(maybe_json, str) else maybe_json
-                    out.extend(PaddleOCRProvider._collect_strings(decoded))
-                except Exception:
-                    pass
-        return out
-
-    def _recognize_image(self, image: Path, language: str) -> str:
+    def recognize_pdf_to_text(
+        self,
+        source: Path,
+        *,
+        language: str,
+        output_dir: Path,
+        pages: Iterable[int] | None = None,
+        progress: ProviderProgressCallback | None = None,
+    ) -> str:
         available, reason = self.available()
         if not available:
             raise ProviderUnavailable(reason)
-        from paddleocr import PaddleOCR
-        engine = PaddleOCR(lang=self._lang(language))
-        if hasattr(engine, 'predict'):
-            result = engine.predict(input=str(image))
-        else:
-            result = engine.ocr(str(image), cls=True)
-        lines = [line.strip() for line in self._collect_strings(result) if line and line.strip()]
-        return '\n'.join(lines)
-
-    def recognize_pdf_to_text(self, source: Path, *, language: str, output_dir: Path, pages: Iterable[int] | None = None) -> str:
-        available, reason = self.available()
-        if not available:
-            raise ProviderUnavailable(reason)
+        foundation = self._foundation()
         output_dir.mkdir(parents=True, exist_ok=True)
         pages_to_run = list(pages or [])
-        if pages_to_run:
-            images = []
-            for page in pages_to_run:
-                prefix = output_dir / f'page-{int(page):04d}'
-                run_hidden_cli(['pdftoppm', '-f', str(page), '-l', str(page), '-singlefile', '-png', '-r', '250', str(source), str(prefix)], check=True, capture_output=True)
-                images.append(prefix.with_suffix('.png'))
-        else:
-            prefix = output_dir / 'page'
-            run_hidden_cli(['pdftoppm', '-png', '-r', '250', str(source), str(prefix)], check=True, capture_output=True)
-            images = sorted(output_dir.glob('page-*.png'))
-        return '\f'.join(self._recognize_image(image, language) for image in images)
+        if not pages_to_run:
+            raise ProviderUnavailable('PaddleOCR page-level execution requires an explicit page list.')
+        out: list[str] = []
+        total = len(pages_to_run)
+        for offset, page in enumerate(pages_to_run, start=1):
+            prefix = output_dir / f'page-{int(page):04d}'
+            run_hidden_cli(
+                [str(foundation.pdftoppm), '-f', str(page), '-l', str(page), '-singlefile', '-png', '-r', '250', str(source), str(prefix)],
+                check=True,
+                capture_output=True,
+                env=foundation.offline_env(),
+            )
+            _emit(progress, provider_id=self.spec.provider_id, state='ocr-page-rendered', page=int(page), page_offset=offset, total_pages=total)
+            text = self._recognize_image(prefix.with_suffix('.png'), output_dir=output_dir)
+            out.append(text)
+            _emit(progress, provider_id=self.spec.provider_id, state='ocr-page-recognized', page=int(page), page_offset=offset, total_pages=total, text_chars=len(text))
+        return '\f'.join(out)
 
 
 class TesseractOCRProvider(OCRProvider):
     page_checkpoint_capable = True
-    spec = ProviderSpec('tesseract-local', 'ocr', 'Tesseract local OCR', 'local-process', 'enabled-when-discovered', True, notes='Local fallback OCR provider.')
+
+    def __init__(self, profile: str = 'fast') -> None:
+        self.profile = profile if profile in {'fast', 'best'} else 'fast'
+        provider_id = 'tesseract-local' if self.profile == 'fast' else 'tesseract-local-best'
+        label = 'Tesseract local OCR · fast fallback' if self.profile == 'fast' else 'Tesseract local OCR · best accuracy'
+        self.spec = ProviderSpec(provider_id, 'ocr', label, 'local-process', 'enabled-when-installed', True, notes='Governed offline local OCR fallback Provider.')
+
+    @staticmethod
+    def _foundation():
+        from .local_ocr import local_ocr_foundation
+        return local_ocr_foundation()
 
     def available(self) -> tuple[bool, str]:
-        if not shutil.which('tesseract'):
-            return False, 'tesseract is not available on PATH.'
-        if not shutil.which('pdftoppm'):
-            return False, 'Poppler pdftoppm is not available on PATH.'
-        return True, 'tesseract and pdftoppm detected.'
+        foundation = self._foundation()
+        if foundation.tesseract_ready(self.profile):
+            return True, f'Tesseract {self.profile} profile and Poppler detected in the governed local OCR runtime.'
+        return False, f'Tesseract {self.profile} profile is not deployed. Use Install / repair local OCR foundation.'
 
     @staticmethod
     def _lang(language: str) -> str:
-        return {'chinese': 'chi_sim+eng', 'english': 'eng', 'mixed': 'chi_sim+eng', 'other': 'eng'}.get(language, 'eng')
+        return {'chinese': 'chi_sim+eng', 'english': 'eng', 'mixed': 'chi_sim+eng', 'other': 'eng', 'uncertain': 'chi_sim+eng'}.get(language, 'chi_sim+eng')
 
     def installed_languages(self) -> set[str]:
-        if not shutil.which('tesseract'):
+        foundation = self._foundation()
+        if not foundation.tesseract.is_file():
             return set()
-        result = run_hidden_cli(['tesseract', '--list-langs'], capture_output=True, text=True, check=False)
+        result = run_hidden_cli([str(foundation.tesseract), '--tessdata-dir', str(foundation.tessdata(self.profile)), '--list-langs'], capture_output=True, text=True, check=False, env=foundation.tesseract_env(self.profile))
         return {line.strip() for line in result.stdout.splitlines()[1:] if line.strip()}
 
-    def recognize_pdf_to_text(self, source: Path, *, language: str, output_dir: Path, pages: Iterable[int] | None = None) -> str:
+    def recognize_pdf_to_text(
+        self,
+        source: Path,
+        *,
+        language: str,
+        output_dir: Path,
+        pages: Iterable[int] | None = None,
+        progress: ProviderProgressCallback | None = None,
+    ) -> str:
         available, reason = self.available()
         if not available:
             raise ProviderUnavailable(reason)
+        foundation = self._foundation()
         output_dir.mkdir(parents=True, exist_ok=True)
         languages = self._lang(language)
-        requested = set(languages.split('+'))
-        missing = requested - self.installed_languages()
+        missing = set(languages.split('+')) - self.installed_languages()
         if missing:
             raise ProviderUnavailable(f'Tesseract language packs missing: {sorted(missing)}')
         pages_to_run = list(pages or [])
-        if pages_to_run:
-            images = []
-            for page in pages_to_run:
-                prefix = output_dir / f'page-{int(page):04d}'
-                run_hidden_cli(['pdftoppm', '-f', str(page), '-l', str(page), '-singlefile', '-png', '-r', '250', str(source), str(prefix)], check=True, capture_output=True)
-                images.append(prefix.with_suffix('.png'))
-        else:
-            prefix = output_dir / 'page'
-            run_hidden_cli(['pdftoppm', '-png', '-r', '250', str(source), str(prefix)], check=True, capture_output=True)
-            images = sorted(output_dir.glob('page-*.png'))
-        out = []
-        for image in images:
-            result = run_hidden_cli(['tesseract', str(image), 'stdout', '-l', languages], capture_output=True, check=False)
+        if not pages_to_run:
+            raise ProviderUnavailable('Tesseract page-level execution requires an explicit page list.')
+        out: list[str] = []
+        total = len(pages_to_run)
+        for offset, page in enumerate(pages_to_run, start=1):
+            prefix = output_dir / f'page-{int(page):04d}'
+            run_hidden_cli(
+                [str(foundation.pdftoppm), '-f', str(page), '-l', str(page), '-singlefile', '-png', '-r', '250', str(source), str(prefix)],
+                check=True,
+                capture_output=True,
+                env=foundation.tesseract_env(self.profile),
+            )
+            _emit(progress, provider_id=self.spec.provider_id, state='ocr-page-rendered', page=int(page), page_offset=offset, total_pages=total)
+            result = run_hidden_cli(
+                [str(foundation.tesseract), '--tessdata-dir', str(foundation.tessdata(self.profile)), str(prefix.with_suffix('.png')), 'stdout', '-l', languages],
+                capture_output=True,
+                check=False,
+                env=foundation.tesseract_env(self.profile),
+            )
             if result.returncode != 0:
-                raise RuntimeError(result.stderr.decode('utf-8', 'replace'))
-            out.append(result.stdout.decode('utf-8', 'replace'))
+                raise RuntimeError((result.stderr or b'').decode('utf-8', 'replace') if isinstance(result.stderr, (bytes, bytearray)) else str(result.stderr or 'Tesseract failed.'))
+            text = result.stdout.decode('utf-8', 'replace') if isinstance(result.stdout, (bytes, bytearray)) else str(result.stdout or '')
+            out.append(text)
+            _emit(progress, provider_id=self.spec.provider_id, state='ocr-page-recognized', page=int(page), page_offset=offset, total_pages=total, text_chars=len(text))
         return '\f'.join(out)
 
 
 class OCRmyPDFProvider(OCRProvider):
     page_checkpoint_capable = False
-    spec = ProviderSpec('ocrmypdf-tesseract', 'ocr', 'OCRmyPDF · Tesseract searchable PDF', 'local-process', 'enabled-when-discovered', True, notes='Adds a searchable text layer. Text is extracted by the normal PDF path afterwards.')
+    spec = ProviderSpec('ocrmypdf-tesseract', 'ocr', 'OCRmyPDF · Tesseract searchable PDF', 'local-process', 'optional-adapter', False, notes='Optional searchable-PDF adapter. Not installed by the v2.5.0 OCR foundation.')
 
     def available(self) -> tuple[bool, str]:
-        if not shutil.which('ocrmypdf'):
-            return False, 'ocrmypdf is not available on PATH.'
-        if not shutil.which('tesseract'):
-            return False, 'tesseract is not available on PATH.'
-        return True, 'ocrmypdf and tesseract detected.'
+        return False, 'OCRmyPDF remains an optional adapter and is not installed by the v2.5.0 local OCR foundation.'
 
-    def recognize_pdf_to_text(self, source: Path, *, language: str, output_dir: Path, pages: Iterable[int] | None = None) -> str:
-        raise ProviderUnavailable('OCRmyPDF is a searchable-PDF adapter. Use create_searchable_pdf().')
-
-    def create_searchable_pdf(self, source: Path, output_pdf: Path, *, language: str) -> Path:
-        available, reason = self.available()
-        if not available:
-            raise ProviderUnavailable(reason)
-        langs = {'chinese': 'chi_sim+eng', 'english': 'eng', 'mixed': 'chi_sim+eng', 'other': 'eng'}.get(language, 'eng')
-        output_pdf.parent.mkdir(parents=True, exist_ok=True)
-        run_hidden_cli(['ocrmypdf', '--skip-text', '--deskew', '-l', langs, str(source), str(output_pdf)], check=True)
-        return output_pdf
+    def recognize_pdf_to_text(self, source: Path, *, language: str, output_dir: Path, pages: Iterable[int] | None = None, progress: ProviderProgressCallback | None = None) -> str:
+        raise ProviderUnavailable('OCRmyPDF is an optional searchable-PDF adapter, not an operational v2.5.0 core OCR Provider.')
 
 
 class ReservedOCRAPIProvider(ExternalAPIContract, OCRProvider):
@@ -573,15 +611,17 @@ class ReservedOCRAPIProvider(ExternalAPIContract, OCRProvider):
     def available(self) -> tuple[bool, str]:
         return False, f'{self.spec.label} is reserved but disabled.'
 
-    def recognize_pdf_to_text(self, source: Path, *, language: str, output_dir: Path, pages: Iterable[int] | None = None) -> str:
+    def recognize_pdf_to_text(self, source: Path, *, language: str, output_dir: Path, pages: Iterable[int] | None = None, progress: ProviderProgressCallback | None = None) -> str:
         self.assert_configured()
         raise ProviderUnavailable(f'{self.spec.label} adapter is reserved but not implemented.')
 
 
 OCR_PROVIDER_SPECS: dict[str, ProviderSpec] = {
     'native-text': ProviderSpec('native-text', 'ocr', 'Native text layer', 'native', 'enabled', True, notes='No OCR needed.'),
-    'paddleocr-ppocrv5': PaddleOCRProvider.spec,
-    'tesseract-local': TesseractOCRProvider.spec,
+    'paddleocr-ppocrv5': PaddleOCRProvider('server').spec,
+    'paddleocr-ppocrv5-mobile': PaddleOCRProvider('mobile').spec,
+    'tesseract-local': TesseractOCRProvider('fast').spec,
+    'tesseract-local-best': TesseractOCRProvider('best').spec,
     'ocrmypdf-tesseract': OCRmyPDFProvider.spec,
     'openai-vision-api': ProviderSpec('openai-vision-api', 'ocr', 'OpenAI Vision API', 'external-api', 'reserved', False, 'OPENAI_API_KEY', None, 'Reserved cloud OCR fallback slot. Disabled by default.'),
     'claude-vision-api': ProviderSpec('claude-vision-api', 'ocr', 'Claude Vision API', 'external-api', 'reserved', False, 'ANTHROPIC_API_KEY', None, 'Reserved cloud OCR fallback slot. Disabled by default.'),
@@ -592,16 +632,19 @@ OCR_PROVIDER_SPECS: dict[str, ProviderSpec] = {
 
 def get_ocr_provider(provider_id: str) -> OCRProvider:
     if provider_id == 'paddleocr-ppocrv5':
-        return PaddleOCRProvider()
+        return PaddleOCRProvider('server')
+    if provider_id == 'paddleocr-ppocrv5-mobile':
+        return PaddleOCRProvider('mobile')
     if provider_id == 'tesseract-local':
-        return TesseractOCRProvider()
+        return TesseractOCRProvider('fast')
+    if provider_id == 'tesseract-local-best':
+        return TesseractOCRProvider('best')
     if provider_id == 'ocrmypdf-tesseract':
         return OCRmyPDFProvider()
     spec = OCR_PROVIDER_SPECS.get(provider_id)
     if not spec:
         raise ProviderUnavailable(f'Unknown OCR provider: {provider_id}')
     return ReservedOCRAPIProvider(spec)
-
 
 def provider_registry_snapshot() -> dict[str, list[dict[str, Any]]]:
     ocr = []

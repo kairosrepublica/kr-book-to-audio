@@ -46,7 +46,21 @@ def portable_main(argv: list[str] | None = None) -> int | None:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument('--portable-smoke-test', type=Path)
     parser.add_argument('--gui-responsiveness-probe', type=Path)
+    parser.add_argument('--install-or-repair-ocr-foundation', action='store_true')
+    parser.add_argument('--ocr-foundation-probe', type=Path)
     args, _unknown = parser.parse_known_args(argv)
+    if args.install_or_repair_ocr_foundation:
+        from .local_ocr_setup import main as setup_local_ocr
+        return int(setup_local_ocr(['--activate']))
+    if args.ocr_foundation_probe:
+        from .local_ocr import local_ocr_foundation
+        from .utils import atomic_write_json
+        foundation = local_ocr_foundation()
+        payload = {'runtime_root': str(foundation.runtime_root), 'resource_root': str(foundation.archive_root), 'ready': foundation.ready_report()}
+        atomic_write_json(args.ocr_foundation_probe, payload)
+        if not all(payload['ready'].values()):
+            raise RuntimeError(f'Local OCR foundation probe failed: {payload["ready"]}')
+        return 0
     if args.gui_responsiveness_probe:
         from .gui_runtime_probe import run_gui_responsiveness_probe
         run_gui_responsiveness_probe(args.gui_responsiveness_probe)
