@@ -1,5 +1,15 @@
 # Changelog
 
+## KR Book To Audio 3.0 UI Fix V2 — 2026-06-14
+
+- Published the V32-based 3.0 UI Fix V2 source payload to GitHub.
+- Updated the README latest interface section to show the 3.0 UI Fix V2 screenshot.
+- Added the latest Owner-machine screenshot under `docs/images/kr_book_to_audio_3_0_ui_status_runtime_20260614.png`.
+- Added release notes, publication receipt, sanitized development history and AI co-coder handoff under `docs/`.
+- Added the portable Windows ZIP and SHA-256 receipt under `release_artifacts/`.
+- Preserved OCR and TTS architecture while focusing this checkpoint on status/progress and diagnostic-log presentation stabilization.
+- Sanitized public repository metadata so Owner-local temporary paths are not exposed in `SOURCE_MANIFEST.json`.
+
 ## Istanbul Release v2.5.0
 
 - Added governed local OCR foundation for image-only PDFs.

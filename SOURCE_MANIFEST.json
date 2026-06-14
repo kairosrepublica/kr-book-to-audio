@@ -1,6 +1,6 @@
 {
   "release_token": "KR_Book_To_Audio_Local_Acceptance_3.0_RELEASE_V32_20260613_221853",
-  "source_root": "C:\\Users\\Kentr\\AppData\\Local\\Temp\\kr-b2a-v300-release-v32-20260613_211309\\source",
+  "source_root": "<KREC_PAYLOAD_CACHE_SOURCE_ROOT_REDACTED>",
   "generated_at": "2026-06-14T06:16:30.052020+00:00",
   "file_count": 171,
   "files": [
@@ -859,5 +859,6 @@
       "bytes": 19487,
       "sha256": "e5134d2d85186ad86c4a6178fbf0fbef7b8a5383944be79a5fc3b8f84d0a230f"
     }
-  ]
+  ],
+  "publication_note": "Sanitized after publication so public repository metadata does not expose Owner-local temporary paths."
 }
