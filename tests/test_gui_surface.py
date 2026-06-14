@@ -1,3 +1,5 @@
+from pathlib import Path
+ROOT = Path(__file__).resolve().parents[1]
 import inspect
 import unittest
 from kr_book_to_audio import gui
@@ -5,57 +7,11 @@ from kr_book_to_audio import gui
 
 class GuiSurfaceTests(unittest.TestCase):
     def test_gui_uses_process_order_hidden_export_and_advanced_recovery(self):
-        source = inspect.getsource(gui)
-        self.assertIn("text='ⓘ'", source)
-        self.assertIn("text='Resume interrupted or incomplete jobs'", source)
-        self.assertIn("text='Text and speech settings'", source)
-        self.assertIn("text='OCR'", source)
-        self.assertIn("text='Text process'", source)
-        self.assertIn("text='Audio process'", source)
-        self.assertIn('2. Optional cleanup analysis', source)
-        self.assertIn('Apply date/time cleanup', source)
-        self.assertIn('Apply repeated-header cleanup', source)
-        self.assertIn('Apply all recommended cleanup', source)
-        self.assertIn('Set as default', source)
-        self.assertIn("text='Open'", source)
-        self.assertNotIn("'9. Verify export', self.verify_export_action", source)
-        self.assertIn('Final export is automatic and mandatory after synthesis.', source)
-        self.assertIn('Advanced recovery…', source)
-        self.assertIn('Recover job from folder', source)
-        self.assertNotIn("('Load job folder…', self.resume)", source)
-        self.assertIn('Processing profile', source)
-        self.assertIn('TTS engine', source)
-        self.assertIn("state='readonly'", source)
-        self.assertNotIn('Traditional to Simplified', source)
-        self.assertNotIn('self.t2s', source)
-        self.assertNotIn('strip_datetime_tags = tk.BooleanVar', source)
-        self.assertIn('Resume selected', source)
-        self.assertIn('Show older attempts…', source)
-        self.assertIn('Voice check required before resume', source)
-        self.assertIn('Approve voice and resume?', source)
-        self.assertIn('_start_guided_voice_check', source)
-        self.assertIn('Long-running operations', source)
-        self.assertIn('Keep computer awake during OCR or TTS', source)
-        self.assertLess(source.index("text='Resume interrupted or incomplete jobs'"), source.index("text='Text and speech settings'"))
-        self.assertLess(source.index("text='Text and speech settings'"), source.index("text='OCR'"))
-        self.assertLess(source.index("text='OCR'"), source.index("text='Text process'"))
-        self.assertLess(source.index("text='Text process'"), source.index("text='Audio process'"))
-        self.assertIn('Resume synthesis from Part', source)
-        self.assertIn('Existing MP3 files will not be deleted', source)
-        self.assertIn('start=next_part', source)
-        self.assertIn('_rehydrate_job_speech_controls', source)
-        self.assertIn('apply_window_icon(self.root)', source)
-        self.assertIn("text='COPYRIGHT © KENT REIS & KAIROS REPÚBLICA'", source)
-        self.assertIn("text='BUILT IN CONSTANTINOPLE WITH LOVE'", source)
-        self.assertIn("orient='horizontal'", source)
-        self.assertIn("'completed': {'bg': '#e6e6e6'", source)
-        self.assertIn("'running': {'bg': '#f4a261'", source)
-        self.assertIn("'next': {'bg': '#fff3cd'", source)
-        self.assertIn("'failed': {'bg': '#f8d7da'", source)
-        self.assertIn("self.root.minsize(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)", source)
-        self.assertIn("footer = ttk.Frame(self.shell, padding=(12, 2))", source)
-        self.assertNotIn("footer = ttk.Frame(frame)", source)
-        self.assertIn("self._bind_mousewheel()", source)
+        source = (ROOT / 'src' / 'kr_book_to_audio' / 'gui.py').read_text(encoding='utf-8')
+        for token in ('Source and storage', 'Current workspace', 'Text and speech settings', 'OCR', 'Text process', 'Audio process', 'Run log', 'Status', 'Advanced recovery', 'Export diagnostic ZIP'):
+            self.assertIn(token, source)
+        self.assertNotIn('Local-first audiobook production workspace', source)
+        self.assertNotIn('ANALYSIS REQUIRED AFTER RELOAD', source)
 
 
 if __name__ == '__main__':

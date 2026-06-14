@@ -522,7 +522,8 @@ class AppendOnlyDeploymentTests(unittest.TestCase):
         worker = setup.PADDLEOCR_WORKER_SCRIPT
         self.assertIn("os.environ['FLAGS_use_mkldnn'] = '0'", worker)
         self.assertIn('enable_mkldnn=False', worker)
-        self.assertIn('cpu_threads=1', worker)
+        self.assertIn('cpu_threads = max(1, min(4', worker)
+        self.assertIn('cpu_threads=cpu_threads', worker)
 
     def test_ensure_wheelhouse_repairs_seeded_old_tree_by_acquiring_pinned_322(self):
         with tempfile.TemporaryDirectory() as td:

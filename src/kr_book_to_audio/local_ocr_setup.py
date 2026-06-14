@@ -681,12 +681,17 @@ def ensure_tessdata(foundation: LocalOCRFoundation) -> None:
     print('TESSDATA DEPLOY PASS', flush=True)
 
 
+def _write_worker_if_stale(path: Path, expected: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    current = path.read_text(encoding='utf-8') if path.is_file() else None
+    if current != expected:
+        path.write_text(expected, encoding='utf-8', newline='\n')
+
+
 def ensure_worker(foundation: LocalOCRFoundation) -> None:
     archive = foundation.resource_root / 'tools' / 'paddleocr_worker' / 'paddleocr_worker.py'
-    archive.parent.mkdir(parents=True, exist_ok=True)
-    if not archive.is_file():
-        archive.write_text(PADDLEOCR_WORKER_SCRIPT, encoding='utf-8', newline='\n')
-    copyfile_if_missing(archive, foundation.paddle_worker)
+    _write_worker_if_stale(archive, PADDLEOCR_WORKER_SCRIPT)
+    _write_worker_if_stale(foundation.paddle_worker, PADDLEOCR_WORKER_SCRIPT)
 
 
 def tesseract_probe(foundation: LocalOCRFoundation) -> None:

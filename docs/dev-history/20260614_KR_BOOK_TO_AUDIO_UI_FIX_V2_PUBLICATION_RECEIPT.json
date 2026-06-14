@@ -1,0 +1,21 @@
+{
+  "generated_at": "2026-06-14T17:02:16.034290+00:00",
+  "mode": "payload-only-publication-receipt",
+  "source_zip": "source/20260614_1125_KR_BOOK_TO_AUDIO_V32_SOURCE_UI_SMOOTHER_PROGRESS_DIAGNOSTIC_LOG_PATCHED.zip",
+  "source_zip_sha256": "e42445eb11431fd0f1a3d3ebb45926b19b4333de0a218cc0b53554ce6cc593d0",
+  "written_file_count": 181,
+  "controlled_paths": [
+    ".github",
+    "docs",
+    "packaging",
+    "src",
+    "tests",
+    "tools",
+    "release_artifacts",
+    ".gitignore",
+    "CHANGELOG.md",
+    "README.md",
+    "SOURCE_MANIFEST.json",
+    "pyproject.toml"
+  ]
+}

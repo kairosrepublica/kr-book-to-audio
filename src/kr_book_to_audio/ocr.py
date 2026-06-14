@@ -3,6 +3,8 @@ from dataclasses import dataclass, asdict
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Callable
+from datetime import datetime, timezone
+import threading
 import json
 import os
 import shutil
@@ -15,6 +17,58 @@ from .power import keep_computer_awake
 from .utils import atomic_write_json, atomic_write_text, sanitize_filename
 
 OCRProgressCallback = Callable[[dict[str, object]], None]
+
+
+class OCRCancelled(RuntimeError):
+    pass
+
+
+class OCRControl:
+    '''Thread-safe cooperative OCR control. Pause and cancel apply between durable page checkpoints.'''
+    def __init__(self) -> None:
+        self._paused = threading.Event()
+        self._cancelled = threading.Event()
+
+    def pause(self) -> None:
+        self._paused.set()
+
+    def resume(self) -> None:
+        self._paused.clear()
+
+    def cancel(self) -> None:
+        self._cancelled.set()
+        self._paused.clear()
+
+    @property
+    def paused(self) -> bool:
+        return self._paused.is_set()
+
+    @property
+    def cancelled(self) -> bool:
+        return self._cancelled.is_set()
+
+    def wait_until_runnable(
+        self,
+        *,
+        progress: OCRProgressCallback | None,
+        started: float,
+        completed_pages: int,
+        total_pages: int,
+        last_completed_page: int | None,
+    ) -> None:
+        if self.cancelled:
+            raise OCRCancelled('OCR cancelled by the user. Completed page checkpoints were preserved.')
+        emitted_pause = False
+        while self.paused:
+            if self.cancelled:
+                raise OCRCancelled('OCR cancelled by the user. Completed page checkpoints were preserved.')
+            if not emitted_pause:
+                _emit(progress, event='ocr', state='ocr-paused', completed_pages=completed_pages, total_pages=total_pages, **_runtime_metrics(started, completed_pages, total_pages, last_completed_page))
+                emitted_pause = True
+            time.sleep(0.2)
+        if emitted_pause:
+            _emit(progress, event='ocr', state='ocr-resumed', completed_pages=completed_pages, total_pages=total_pages, **_runtime_metrics(started, completed_pages, total_pages, last_completed_page))
+
 
 
 @dataclass(frozen=True)
@@ -114,7 +168,7 @@ def _tesseract_supports(language: str, capability: dict[str, Any]) -> bool:
 
 
 def _recommend_provider(language: str, capabilities: dict[str, dict[str, Any]]) -> str | None:
-    for provider_id in ('paddleocr-ppocrv5', 'paddleocr-ppocrv5-mobile'):
+    for provider_id in ('paddleocr-ppocrv5-mobile', 'paddleocr-ppocrv5'):
         if capabilities.get(provider_id, {}).get('available'):
             return provider_id
     for provider_id in ('tesseract-local-best', 'tesseract-local'):
@@ -145,14 +199,43 @@ def analyze_source(source: Path) -> OCRAnalysis:
     return OCRAnalysis('required', fmt, language, provider, reason, pages, capabilities, score)
 
 
-def preview_sample_ocr(source: Path, analysis: OCRAnalysis, *, provider_id: str | None = None, progress: OCRProgressCallback | None = None) -> dict[str, Any]:
+def preview_sample_ocr(
+    source: Path,
+    analysis: OCRAnalysis,
+    *,
+    provider_id: str | None = None,
+    progress: OCRProgressCallback | None = None,
+    output_dir: Path | None = None,
+) -> dict[str, Any]:
     provider_id = provider_id or analysis.recommended_provider
     if not provider_id or provider_id == 'native-text':
         raise ProviderUnavailable('No OCR provider is required or available for sample preview.')
     provider = get_ocr_provider(provider_id)
-    with tempfile.TemporaryDirectory(prefix='kr-b2a-ocr-preview-') as tmp:
-        text = provider.recognize_pdf_to_text(Path(source), language=analysis.language, output_dir=Path(tmp), pages=analysis.sample_pages, progress=progress)
-    return {'provider_id': provider_id, 'language': analysis.language, 'sample_pages': analysis.sample_pages, 'quality_score': quality_score(text), 'preview_text': text[:4000]}
+    started = time.monotonic()
+    if output_dir is None:
+        with tempfile.TemporaryDirectory(prefix='kr-b2a-ocr-preview-') as tmp:
+            text = provider.recognize_pdf_to_text(Path(source), language=analysis.language, output_dir=Path(tmp), pages=analysis.sample_pages, progress=progress)
+        return {'provider_id': provider_id, 'language': analysis.language, 'sample_pages': analysis.sample_pages, 'quality_score': quality_score(text), 'preview_text': text[:12000], 'elapsed_seconds': round(time.monotonic() - started, 3)}
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    text = provider.recognize_pdf_to_text(Path(source), language=analysis.language, output_dir=output_dir, pages=analysis.sample_pages, progress=progress)
+    sample_text = output_dir / 'ocr_preview_sample.txt'
+    summary = output_dir / 'ocr_preview_summary.json'
+    elapsed = round(time.monotonic() - started, 3)
+    atomic_write_text(sample_text, text.strip() + '\n')
+    payload = {
+        'provider_id': provider_id,
+        'language': analysis.language,
+        'sample_pages': analysis.sample_pages,
+        'quality_score': quality_score(text),
+        'preview_text': text[:12000],
+        'elapsed_seconds': elapsed,
+        'average_seconds_per_page': round(elapsed / max(1, len(analysis.sample_pages)), 3),
+        'output_dir': str(output_dir),
+        'sample_text': str(sample_text),
+    }
+    atomic_write_json(summary, payload)
+    return payload
 
 
 def _source_sha256(source: Path) -> str:
@@ -205,6 +288,8 @@ def run_recommended_ocr(
     provider_id: str | None = None,
     keep_awake: bool = True,
     progress: OCRProgressCallback | None = None,
+    export_dir: Path | None = None,
+    control: OCRControl | None = None,
 ) -> Path:
     provider_id = provider_id or analysis.recommended_provider
     if not provider_id or provider_id == 'native-text':
@@ -212,10 +297,15 @@ def run_recommended_ocr(
     provider = get_ocr_provider(provider_id)
     source = Path(source)
     output_dir = Path(output_dir)
+    export_dir = Path(export_dir) if export_dir is not None else None
+    control = control or OCRControl()
     source_sha256 = _source_sha256(source)
     execution_dir = output_dir / _source_token(source, source_sha256)
     pages_dir = execution_dir / 'pages'
-    pages_dir.mkdir(parents=True, exist_ok=True)
+    attempts_dir = execution_dir / 'attempts'
+    failed_dir = execution_dir / 'failed-pages'
+    for folder in (pages_dir, attempts_dir, failed_dir):
+        folder.mkdir(parents=True, exist_ok=True)
     state_path = execution_dir / '_ocr_execution.json'
     try:
         diagnosis = diagnose(source)
@@ -224,57 +314,88 @@ def run_recommended_ocr(
     total_pages = int(diagnosis.get('pages') or max(analysis.sample_pages or [0]))
     if total_pages <= 0:
         raise RuntimeError('OCR cannot start because the PDF page count could not be determined.')
-    provider_capability = bool(getattr(provider, 'page_checkpoint_capable', False))
-    if not provider_capability:
+    if not bool(getattr(provider, 'page_checkpoint_capable', False)):
         raise ProviderUnavailable(f'OCR Provider does not support durable page checkpoints: {provider_id}')
     prior = _read_state(state_path)
-    if prior and (prior.get('source') != str(source.resolve()) or prior.get('source_sha256') != source_sha256 or prior.get('provider_id') != provider_id or prior.get('language') != analysis.language):
-        raise RuntimeError('Existing OCR checkpoint belongs to a different source content, Provider or language profile. Use a separate OCR output folder or remove the stale checkpoint after review.')
     completed = {int(page) for page in prior.get('completed_pages', []) if str(page).isdigit() and (pages_dir / f'page-{int(page):04d}.txt').is_file()}
+    failed = {int(page) for page in prior.get('failed_pages', []) if str(page).isdigit()}
     started = time.monotonic()
+    cooldown_seconds = max(0.0, float(os.environ.get('KR_B2A_OCR_PAGE_COOLDOWN_SECONDS', '2')))
+    batch_cooldown_seconds = max(0.0, float(os.environ.get('KR_B2A_OCR_BATCH_COOLDOWN_SECONDS', '30')))
+    batch_size = max(1, int(os.environ.get('KR_B2A_OCR_BATCH_SIZE', '20')))
     base_state: dict[str, Any] = {
-        'status': 'running',
-        'source': str(source.resolve()),
-        'source_sha256': source_sha256,
-        'provider_id': provider_id,
-        'language': analysis.language,
-        'page_checkpoint_capable': True,
-        'total_pages': total_pages,
-        'completed_pages': sorted(completed),
+        'status': 'running', 'source': str(source.resolve()), 'source_sha256': source_sha256,
+        'provider_id': provider_id, 'language': analysis.language, 'page_checkpoint_capable': True,
+        'total_pages': total_pages, 'completed_pages': sorted(completed), 'failed_pages': sorted(failed),
+        'offline_mode_enforced': True,
     }
     atomic_write_json(state_path, base_state)
     atomic_write_json(output_dir / '_ocr_execution.json', base_state)
     _emit(progress, event='ocr', state='ocr-started', provider_id=provider_id, completed_pages=len(completed), total_pages=total_pages, **_runtime_metrics(started, len(completed), total_pages, max(completed) if completed else None))
-    try:
-        with keep_computer_awake(keep_awake):
-            for page in range(1, total_pages + 1):
-                page_path = pages_dir / f'page-{page:04d}.txt'
-                if page in completed and page_path.is_file():
-                    _emit(progress, event='ocr', state='ocr-page-reused', provider_id=provider_id, page=page, completed_pages=len(completed), total_pages=total_pages, **_runtime_metrics(started, len(completed), total_pages, page))
-                    continue
-                _emit(progress, event='ocr', state='ocr-page-started', provider_id=provider_id, page=page, completed_pages=len(completed), total_pages=total_pages, **_runtime_metrics(started, len(completed), total_pages, max(completed) if completed else None))
-                with tempfile.TemporaryDirectory(prefix=f'kr-b2a-ocr-page-{page:04d}-') as tmp:
-                    text = provider.recognize_pdf_to_text(source, language=analysis.language, output_dir=Path(tmp), pages=[page])
+    with keep_computer_awake(keep_awake):
+        for page in range(1, total_pages + 1):
+            control.wait_until_runnable(progress=progress, started=started, completed_pages=len(completed), total_pages=total_pages, last_completed_page=max(completed) if completed else None)
+            page_path = pages_dir / f'page-{page:04d}.txt'
+            if page in completed and page_path.is_file():
+                _emit(progress, event='ocr', state='ocr-page-reused', provider_id=provider_id, page=page, completed_pages=len(completed), total_pages=total_pages, **_runtime_metrics(started, len(completed), total_pages, page))
+                continue
+            _emit(progress, event='ocr', state='ocr-page-started', phase='starting offline OCR page', provider_id=provider_id, page=page, completed_pages=len(completed), total_pages=total_pages, **_runtime_metrics(started, len(completed), total_pages, max(completed) if completed else None))
+            page_attempt_dir = attempts_dir / f'page-{page:04d}'
+            page_attempt_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                text = provider.recognize_pdf_to_text(source, language=analysis.language, output_dir=page_attempt_dir, pages=[page], progress=progress)
+                if control.cancelled:
+                    raise OCRCancelled('OCR cancelled by the user. Completed page checkpoints were preserved.')
                 atomic_write_text(page_path, text.strip() + '\n')
                 completed.add(page)
+                failed.discard(page)
                 metrics = _runtime_metrics(started, len(completed), total_pages, page)
-                base_state.update({'status': 'running', 'completed_pages': sorted(completed), **metrics})
+                base_state.update({'status': 'running', 'completed_pages': sorted(completed), 'failed_pages': sorted(failed), **metrics})
                 atomic_write_json(state_path, base_state)
                 atomic_write_json(output_dir / '_ocr_execution.json', base_state)
-                _emit(progress, event='ocr', state='ocr-page-completed', provider_id=provider_id, page=page, completed_pages=len(completed), total_pages=total_pages, **metrics)
-        target = output_dir / f'{sanitize_filename(source.stem, "book")}_ocr.txt'
-        combined = '\n\n'.join((pages_dir / f'page-{page:04d}.txt').read_text(encoding='utf-8', errors='replace').strip() for page in range(1, total_pages + 1)).strip() + '\n'
-        atomic_write_text(target, combined)
-        metrics = _runtime_metrics(started, len(completed), total_pages, max(completed) if completed else None)
-        base_state.update({'status': 'completed', 'completed_pages': sorted(completed), 'output': str(target), **metrics})
-        atomic_write_json(state_path, base_state)
-        atomic_write_json(output_dir / '_ocr_execution.json', base_state)
-        _emit(progress, event='ocr', state='ocr-completed', provider_id=provider_id, completed_pages=len(completed), total_pages=total_pages, output=str(target), **metrics)
-        return target
-    except Exception as exc:
-        metrics = _runtime_metrics(started, len(completed), total_pages, max(completed) if completed else None)
-        base_state.update({'status': 'interrupted-or-failed', 'completed_pages': sorted(completed), 'error': f'{type(exc).__name__}: {exc}', **metrics})
-        atomic_write_json(state_path, base_state)
-        atomic_write_json(output_dir / '_ocr_execution.json', base_state)
-        _emit(progress, event='ocr', state='ocr-failed', provider_id=provider_id, completed_pages=len(completed), total_pages=total_pages, error=f'{type(exc).__name__}: {exc}', **metrics)
-        raise
+                _emit(progress, event='ocr', state='ocr-page-completed', phase='saved page checkpoint', provider_id=provider_id, page=page, completed_pages=len(completed), total_pages=total_pages, **metrics)
+            except OCRCancelled:
+                raise
+            except Exception as exc:
+                failed.add(page)
+                failure = {'page': page, 'error': f'{type(exc).__name__}: {exc}', 'failed_at': datetime.now(timezone.utc).isoformat()}
+                atomic_write_json(failed_dir / f'page-{page:04d}.json', failure)
+                metrics = _runtime_metrics(started, len(completed), total_pages, max(completed) if completed else None)
+                base_state.update({'status': 'running-with-page-failures', 'completed_pages': sorted(completed), 'failed_pages': sorted(failed), **metrics})
+                atomic_write_json(state_path, base_state)
+                atomic_write_json(output_dir / '_ocr_execution.json', base_state)
+                _emit(progress, event='ocr', state='ocr-page-failed-continued', phase='page failed; continuing', provider_id=provider_id, page=page, completed_pages=len(completed), total_pages=total_pages, failed_pages=len(failed), error=failure['error'], **metrics)
+            if cooldown_seconds:
+                time.sleep(cooldown_seconds)
+            if page % batch_size == 0 and batch_cooldown_seconds:
+                _emit(progress, event='ocr', state='ocr-batch-cooldown', phase='laptop cooldown', provider_id=provider_id, page=page, completed_pages=len(completed), total_pages=total_pages, cooldown_seconds=batch_cooldown_seconds, **_runtime_metrics(started, len(completed), total_pages, page))
+                time.sleep(batch_cooldown_seconds)
+    stem = sanitize_filename(source.stem, 'book')
+    working_target = output_dir / f'{stem}_ocr.txt'
+    chunks = []
+    for page in range(1, total_pages + 1):
+        page_path = pages_dir / f'page-{page:04d}.txt'
+        chunks.append(page_path.read_text(encoding='utf-8', errors='replace').strip() if page_path.is_file() else f'[OCR FAILED PAGE {page}]')
+    combined = '\n\n'.join(chunks).strip() + '\n'
+    atomic_write_text(working_target, combined)
+    metrics = _runtime_metrics(started, len(completed), total_pages, max(completed) if completed else None)
+    target = working_target
+    final_status = 'completed-with-page-failures' if failed else 'completed'
+    if export_dir is not None:
+        export_dir.mkdir(parents=True, exist_ok=True)
+        raw_target = export_dir / f'{stem}_ocr_raw.txt'
+        review_target = export_dir / f'{stem}_ocr_review.txt'
+        summary_target = export_dir / f'{stem}_ocr_summary.json'
+        atomic_write_text(raw_target, combined)
+        atomic_write_text(review_target, combined)
+        atomic_write_json(summary_target, {'status': final_status, 'source': str(source.resolve()), 'provider_id': provider_id, 'language': analysis.language, 'total_pages': total_pages, 'completed_pages': sorted(completed), 'failed_pages': sorted(failed), 'working_output': str(working_target), 'review_output': str(review_target), 'raw_output': str(raw_target), **metrics})
+        target = review_target
+    base_state.update({'status': final_status, 'completed_pages': sorted(completed), 'failed_pages': sorted(failed), 'output': str(target), 'working_output': str(working_target), **metrics})
+    atomic_write_json(state_path, base_state)
+    atomic_write_json(output_dir / '_ocr_execution.json', base_state)
+    _emit(progress, event='ocr', state='ocr-completed-with-page-failures' if failed else 'ocr-completed', phase='full OCR pass completed', provider_id=provider_id, completed_pages=len(completed), total_pages=total_pages, failed_pages=len(failed), output=str(target), working_output=str(working_target), **metrics)
+    return target
+
+
+def retry_failed_ocr_pages(source: Path, analysis: OCRAnalysis, *, output_dir: Path, provider_id: str | None = None, keep_awake: bool = True, progress: OCRProgressCallback | None = None, export_dir: Path | None = None, control: OCRControl | None = None) -> Path:
+    return run_recommended_ocr(source, analysis, output_dir=output_dir, provider_id=provider_id, keep_awake=keep_awake, progress=progress, export_dir=export_dir, control=control)

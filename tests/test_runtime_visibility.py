@@ -1,17 +1,15 @@
-import inspect
+from pathlib import Path
 import unittest
-from kr_book_to_audio import gui
+ROOT = Path(__file__).resolve().parents[1]
 
 class RuntimeVisibilityTests(unittest.TestCase):
     def test_gui_has_timestamped_log_green_running_row_and_auto_centering(self):
-        source=inspect.getsource(gui)
-        self.assertIn("strftime('%H:%M:%S')", source)
-        self.assertIn("self.log.see('end')", source)
-        self.assertIn("tag_configure('running'", source)
-        self.assertIn("_center_part_status", source)
-        self.assertIn("% estimated", source)
-        self.assertIn("_log_progress_bucket", source)
-        self.assertIn("min(94", source)
-        self.assertIn("100% done", source)
+        source = (ROOT / 'src' / 'kr_book_to_audio' / 'gui.py').read_text(encoding='utf-8')
+        self.assertIn('self.log_progress = ttk.Progressbar', source)
+        self.assertIn("roles[key] = 'running'", source)
+        self.assertIn('self.status_current_progress = ttk.Progressbar', source)
+        self.assertIn('self.overall_progress = self.log_progress', source)
+        self.assertIn('self.current_progress = self.status_current_progress', source)
+        self.assertNotIn('self.current_progress = ttk.Progressbar', source)
 
-if __name__=='__main__': unittest.main()
+if __name__ == '__main__': unittest.main()

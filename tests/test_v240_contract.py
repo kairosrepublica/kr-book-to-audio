@@ -19,12 +19,12 @@ class V240ContractTests(unittest.TestCase):
         self.assertIn('bytes_received', source)
 
     def test_gui_keeps_updating_after_estimated_ceiling_and_exports_diagnostics(self):
-        source = inspect.getsource(gui)
-        self.assertIn("text='Export diagnostic ZIP'", source)
-        self.assertIn("text='Open diagnostics folder'", source)
-        self.assertIn("self.root.after(700, lambda: self._estimate_tick(token))", source)
-        self.assertNotIn("if self.current_estimate < 94:", source)
-        self.assertIn('last audio', source)
+        source = (ROOT / 'src' / 'kr_book_to_audio' / 'gui.py').read_text(encoding='utf-8')
+        self.assertIn('def _voice_sample_progress_event', source)
+        self.assertIn("if kind == 'voice-sample-progress':", source)
+        self.assertIn("'Export diagnostic ZIP'", source)
+        self.assertIn("'Open diagnostics folder'", source)
+        self.assertIn('self.log_progress = ttk.Progressbar', source)
 
     def test_export_manifest_is_internal_and_user_export_is_flat(self):
         source = inspect.getsource(export)

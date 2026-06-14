@@ -1,0 +1,39 @@
+{
+  "mode": "v32-ui-smoother-progress-diagnostic-log-patched",
+  "source_basis": "20260614_0630_KR_BOOK_TO_AUDIO_V32_SOURCE_UI_STATUS_PERCENT_LOG_LINES_PATCHED.zip",
+  "scope": [
+    "status Treeview anti-jitter",
+    "UI estimate avoids long 94% plateau by moving estimated display up to 98%",
+    "provider telemetry log throttled for diagnostic usefulness"
+  ],
+  "non_scope": [
+    "OCR",
+    "TTS provider implementation",
+    "audio synthesis core",
+    "file processing core",
+    "resume/reload/reject/save job",
+    "layout/colors/fonts",
+    "Git/GitHub"
+  ],
+  "changed_files": [
+    "src/kr_book_to_audio/gui.py"
+  ],
+  "source_zip": "/mnt/data/20260614_1125_KR_BOOK_TO_AUDIO_V32_SOURCE_UI_SMOOTHER_PROGRESS_DIAGNOSTIC_LOG_PATCHED.zip",
+  "source_zip_sha256": "e42445eb11431fd0f1a3d3ebb45926b19b4333de0a218cc0b53554ce6cc593d0",
+  "compileall": {
+    "ok": true,
+    "stdout": "",
+    "stderr": ""
+  },
+  "focused_ui_probe": {
+    "ok": true,
+    "stdout": "FOCUSED_UI_V33_PROBE_PASS",
+    "stderr": ""
+  },
+  "notes": [
+    "Percent sync no longer calls _center_part_status on every tick.",
+    "Active row centering is debounced to once per active running/retrying part.",
+    "UI estimate now moves from 90 to 98 during provider overtime instead of freezing at 94; still reserves 100 for actual done event.",
+    "Provider telemetry is logged on stage/attempt change, 512KB audio buckets, or 30-second heartbeat, not every telemetry update."
+  ]
+}

@@ -1,0 +1,145 @@
+--- V32_UI_FIX_1/src/kr_book_to_audio/gui.py
++++ V32_UI_FIX_2/src/kr_book_to_audio/gui.py
+@@ -371,6 +371,10 @@
+         self.runtime_seconds_per_char: list[float] = []
+         self.logged_progress_buckets: dict[int, int] = {}
+         self.provider_runtime: dict[str, object] = {}
++        self._last_centered_part_status_index: int | None = None
++        self._last_provider_log_signature = ''
++        self._last_provider_log_at = 0.0
++        self._last_provider_log_bytes_bucket = -1
+         self.preview_playback_token = 0
+         self.last_played_preview_token = 0
+         self.speech_settings_locked = False
+@@ -1286,22 +1290,37 @@
+             self.parts.insert('', 'end', iid=iid, values=values, tags=tags)
+
+     def _center_part_status(self, index: int) -> None:
++        parts = getattr(self, 'parts', None)
++        if parts is None:
++            return
+         iid = str(index)
+-        if not self.parts.exists(iid):
+-            return
+-        children = list(self.parts.get_children())
++        if not parts.exists(iid):
++            return
++        children = list(parts.get_children())
+         if not children:
+             return
+         try:
+             position = children.index(iid)
+         except ValueError:
+             return
+-        visible_rows = max(3, int(self.parts.cget('height') or 19))
++        visible_rows = max(3, int(parts.cget('height') or 19))
+         target = max(0.0, min(1.0, (position - visible_rows // 2) / max(1, len(children))))
+-        self.parts.yview_moveto(target)
+-        self.parts.see(iid)
+-        self.parts.selection_set(iid)
+-        self.parts.focus(iid)
++        parts.yview_moveto(target)
++        parts.see(iid)
++        parts.selection_set(iid)
++        parts.focus(iid)
++
++    def _maybe_center_part_status(self, index: int, state: str) -> None:
++        if str(state) not in {'running', 'retrying'}:
++            return
++        try:
++            part_index = int(index)
++        except (TypeError, ValueError):
++            return
++        if getattr(self, '_last_centered_part_status_index', None) == part_index:
++            return
++        self._last_centered_part_status_index = part_index
++        self._center_part_status(part_index)
+
+     def _expected_seconds(self, text_chars: int) -> float:
+         if self.runtime_seconds_per_char:
+@@ -1356,6 +1375,39 @@
+             f'audio {self._format_bytes(bytes_received)} · last audio {int(last_audio)} sec ago · attempt {attempt}'
+         )
+
++    def _ui_audio_estimate_percent(self, elapsed: float, expected: float, current: int) -> int:
++        expected = max(1.0, float(expected or 1.0))
++        elapsed = max(0.0, float(elapsed or 0.0))
++        current = max(0, min(100, int(current or 0)))
++        if elapsed <= expected:
++            target = int(elapsed / expected * 90.0)
++        else:
++            overtime_ratio = min(1.0, (elapsed - expected) / max(1.0, expected * 4.0))
++            target = 90 + int(overtime_ratio * 8.0)
++        return max(current, min(98, target))
++
++    def _should_log_provider_telemetry(self, index: int, runtime: dict[str, object]) -> bool:
++        now = time.monotonic()
++        try:
++            bytes_received = int(runtime.get('bytes_received') or 0)
++        except (TypeError, ValueError):
++            bytes_received = 0
++        bytes_bucket = bytes_received // max(1, 512 * 1024)
++        signature = f"{index}|{runtime.get('provider_id')}|{runtime.get('stage')}|{runtime.get('attempt')}"
++        if signature != getattr(self, '_last_provider_log_signature', ''):
++            self._last_provider_log_signature = signature
++            self._last_provider_log_bytes_bucket = bytes_bucket
++            self._last_provider_log_at = now
++            return True
++        if bytes_bucket > int(getattr(self, '_last_provider_log_bytes_bucket', -1)):
++            self._last_provider_log_bytes_bucket = bytes_bucket
++            self._last_provider_log_at = now
++            return True
++        if now - float(getattr(self, '_last_provider_log_at', 0.0) or 0.0) >= 30.0:
++            self._last_provider_log_at = now
++            return True
++        return False
++
+     def _estimate_tick(self, token: int) -> None:
+         if token != int(getattr(self, 'estimate_token', 0) or 0):
+             return
+@@ -1364,7 +1416,7 @@
+         started = float(getattr(self, 'current_started_monotonic', time.monotonic()) or time.monotonic())
+         expected = max(1.0, float(getattr(self, 'current_expected_seconds', 1.0) or 1.0))
+         elapsed = max(0.0, time.monotonic() - started)
+-        estimate = min(94, max(int(getattr(self, 'current_estimate', 0) or 0), int(elapsed / expected * 90.0)))
++        estimate = self._ui_audio_estimate_percent(elapsed, expected, int(getattr(self, 'current_estimate', 0) or 0))
+         self.current_estimate = estimate
+         index = max(1, int(getattr(self, 'current_index', 1) or 1))
+         self._set_status_item_percent(estimate)
+@@ -1420,13 +1472,16 @@
+         except (TypeError, ValueError):
+             estimate = int(getattr(self, 'current_estimate', 0) or 0)
+         self.current_index = index
+-        self.current_estimate = max(0, min(94, max(int(getattr(self, 'current_estimate', 0) or 0), estimate)))
++        self.current_estimate = max(0, min(98, max(int(getattr(self, 'current_estimate', 0) or 0), estimate)))
+         self._set_status_item_percent(self.current_estimate)
+         self._set_project_overall_percent(self._project_tts_overall_percent(index, self.current_estimate))
+         self._render_audio_status_summary(index=index, percent=self.current_estimate)
+-        detail = f"Provider telemetry | Part {index:03d} | stage={runtime['stage']} | attempt={runtime['attempt']} | bytes={runtime['bytes_received']}"
+-        if detail != getattr(self, '_last_audio_provider_log_detail', ''):
+-            self._last_audio_provider_log_detail = detail
++        if self._should_log_provider_telemetry(index, runtime):
++            detail = (
++                f"TTS telemetry | Part {index:03d} | stage={runtime['stage']} | "
++                f"attempt={runtime['attempt']} | audio={self._format_bytes(int(runtime['bytes_received']))} | "
++                f"last_audio={int(float(runtime.get('last_audio_seconds_ago') or 0.0))}s"
++            )
+             self._log_event(detail)
+
+     def _update_part_progress(self, payload: dict) -> None:
+@@ -1465,7 +1520,7 @@
+             self._log_event(f'Part {index:04d}: {payload.get("switch_recommendation") or payload.get("error") or "unknown provider failure"}')
+         self.current_index = index; self.current_estimate = current_percent
+         self._set_status_item_percent(current_percent); self._set_project_overall_percent(self._project_tts_overall_percent(index, current_percent))
+-        self._set_part_state(index, row_state, highlight=highlight); self._center_part_status(index); self._log_progress_bucket(index, state, current_percent)
++        self._set_part_state(index, row_state, highlight=highlight); self._maybe_center_part_status(index, state); self._log_progress_bucket(index, state, current_percent)
+         self._render_audio_status_summary(index=index, percent=current_percent)
+         self._refresh_job_view()
+
+@@ -2012,7 +2067,6 @@
+         highlight = 'running' if percent < 100 else None
+         try:
+             self._set_part_state(part_index, f'{percent}%', highlight=highlight)
+-            self._center_part_status(part_index)
+         except Exception:
+             return

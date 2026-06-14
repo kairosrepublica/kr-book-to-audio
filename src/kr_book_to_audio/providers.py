@@ -3,9 +3,11 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any, Callable, Iterable
 import asyncio
+import hashlib
 import importlib.util
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -15,6 +17,19 @@ from .subprocess_utils import popen_hidden_cli, run_hidden_cli
 ProviderProgressCallback = Callable[[dict[str, object]], None]
 EDGE_NO_AUDIO_TIMEOUT_SECONDS = float(os.environ.get('KR_B2A_EDGE_NO_AUDIO_TIMEOUT_SECONDS', '120'))
 EDGE_TOTAL_PART_TIMEOUT_SECONDS = float(os.environ.get('KR_B2A_EDGE_TOTAL_PART_TIMEOUT_SECONDS', '720'))
+ANSI_ESCAPE_RE = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]')
+
+
+def _sanitize_worker_error(text: str) -> str:
+    clean = ANSI_ESCAPE_RE.sub('', str(text or '')).strip()
+    lines = [line for line in clean.splitlines() if line.strip()]
+    return '\n'.join(lines[-12:])
+
+
+def _write_worker_diagnostics(output_dir: Path, *, stdout: str, stderr: str) -> Path:
+    path = Path(output_dir) / 'paddleocr-worker.stderr.log'
+    path.write_text('STDOUT\n======\n' + str(stdout or '') + '\n\nSTDERR\n======\n' + str(stderr or ''), encoding='utf-8', errors='replace')
+    return path
 
 
 @dataclass(frozen=True)
@@ -425,20 +440,13 @@ class OCRProvider:
 
 class PaddleOCRProvider(OCRProvider):
     page_checkpoint_capable = True
+    _high_accuracy_quarantined = False
 
-    def __init__(self, profile: str = 'server') -> None:
-        self.profile = profile if profile in {'server', 'mobile'} else 'server'
+    def __init__(self, profile: str = 'mobile') -> None:
+        self.profile = profile if profile in {'server', 'mobile'} else 'mobile'
         provider_id = 'paddleocr-ppocrv5' if self.profile == 'server' else 'paddleocr-ppocrv5-mobile'
-        label = 'PaddleOCR PP-OCRv5 · server accuracy' if self.profile == 'server' else 'PaddleOCR PP-OCRv5 · mobile fallback'
-        self.spec = ProviderSpec(
-            provider_id,
-            'ocr',
-            label,
-            'local-process',
-            'enabled-when-installed',
-            True,
-            notes='Governed offline local OCR Provider. Models are archived before deployment and normal use is offline-only.',
-        )
+        label = 'PaddleOCR \u00b7 High-accuracy local model \u00b7 Advanced' if self.profile == 'server' else 'PaddleOCR \u00b7 Fast local model \u00b7 recommended'
+        self.spec = ProviderSpec(provider_id, 'ocr', label, 'local-process', 'enabled-when-installed', True, notes='Governed fully offline local OCR Provider. Models are local-only. Runtime network access is disabled.')
 
     @staticmethod
     def _foundation():
@@ -448,17 +456,60 @@ class PaddleOCRProvider(OCRProvider):
     def available(self) -> tuple[bool, str]:
         foundation = self._foundation()
         if foundation.paddle_ready(self.profile):
-            return True, f'PaddleOCR {self.profile} profile detected in the governed local OCR runtime.'
-        return False, f'PaddleOCR {self.profile} profile is not deployed. Use Install / repair local OCR foundation.'
+            return True, f'PaddleOCR {self.profile} local profile detected in the governed offline runtime.'
+        return False, f'PaddleOCR {self.profile} local profile is not deployed. Use Install / repair local OCR foundation.'
 
-    def _recognize_image(self, image: Path, *, output_dir: Path) -> str:
+    @staticmethod
+    def _exit_hex(returncode: int) -> str:
+        return f'0x{(int(returncode) & 0xffffffff):08x}'
+
+    @staticmethod
+    def _offline_env(foundation) -> dict[str, str]:
+        env = foundation.offline_env()
+        required = {
+            'HF_HUB_OFFLINE': '1',
+            'TRANSFORMERS_OFFLINE': '1',
+            'HF_DATASETS_OFFLINE': '1',
+            'PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK': 'True',
+        }
+        missing = {key: value for key, value in required.items() if str(env.get(key) or '') != value}
+        if missing:
+            raise ProviderUnavailable(f'OCR offline enforcement is incomplete: {missing}')
+        for key in ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy'):
+            env.pop(key, None)
+        env['NO_PROXY'] = '*'
+        env['no_proxy'] = '*'
+        env['KR_B2A_OCR_OFFLINE_ONLY'] = '1'
+        return env
+
+    def _recognize_image(
+        self,
+        image: Path,
+        *,
+        output_dir: Path,
+        progress: ProviderProgressCallback | None = None,
+        page: int = 0,
+        page_offset: int = 0,
+        total_pages: int = 0,
+        attempt_label: str = '',
+    ) -> str:
         foundation = self._foundation()
         foundation.assert_paddle_ready(self.profile)
         output_dir.mkdir(parents=True, exist_ok=True)
         det, rec = foundation.paddle_model_paths(self.profile)
-        request_path = output_dir / (image.stem + '.request.json')
-        response_path = output_dir / (image.stem + '.response.json')
+        run_id = f'{self.profile}-{time.time_ns()}'
+        attempt_dir = output_dir / f'paddle-attempt-{run_id}'
+        attempt_dir.mkdir(parents=True, exist_ok=False)
+        request_path = attempt_dir / 'request.json'
+        response_path = attempt_dir / 'response.json'
+        stdout_path = attempt_dir / 'stdout.log'
+        stderr_path = attempt_dir / 'stderr.log'
+        receipt_path = attempt_dir / 'attempt-receipt.json'
+        env = self._offline_env(foundation)
         request_path.write_text(json.dumps({
+            'run_id': run_id,
+            'offline_mode_enforced': True,
+            'cpu_threads': max(1, min(4, int(os.environ.get('KR_B2A_OCR_CPU_THREADS', '2')))),
             'image': str(image),
             'output': str(response_path),
             'text_detection_model_name': f'PP-OCRv5_{self.profile}_det',
@@ -466,21 +517,73 @@ class PaddleOCRProvider(OCRProvider):
             'text_recognition_model_name': f'PP-OCRv5_{self.profile}_rec',
             'text_recognition_model_dir': str(rec),
         }, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-        result = run_hidden_cli(
-            [str(foundation.paddle_python), str(foundation.paddle_worker), '--request', str(request_path)],
-            capture_output=True,
-            text=True,
-            check=False,
-            env=foundation.offline_env(),
-            timeout=float(os.environ.get('KR_B2A_PADDLEOCR_PAGE_TIMEOUT_SECONDS', '600')),
-        )
-        if result.returncode != 0:
-            detail = (result.stderr or result.stdout or '').strip()
-            raise ProviderUnavailable(f'PaddleOCR local worker failed: {detail or "unknown error"}')
+        timeout = float(os.environ.get('KR_B2A_PADDLEOCR_PAGE_TIMEOUT_SECONDS', '120'))
+        heartbeat_seconds = max(3.0, float(os.environ.get('KR_B2A_OCR_HEARTBEAT_SECONDS', '10')))
+        started = time.monotonic()
+        _emit(progress, provider_id=self.spec.provider_id, state='ocr-worker-started', phase='loading local models', offline_mode='ENFORCED', profile=self.profile, pid=None, page=page, page_offset=page_offset, total_pages=total_pages, attempt_label=attempt_label, elapsed_seconds=0.0)
+        with stdout_path.open('w', encoding='utf-8') as stdout_handle, stderr_path.open('w', encoding='utf-8') as stderr_handle:
+            process = popen_hidden_cli(
+                [str(foundation.paddle_python), str(foundation.paddle_worker), '--request', str(request_path)],
+                stdout=stdout_handle,
+                stderr=stderr_handle,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                env=env,
+            )
+            next_heartbeat = started + heartbeat_seconds
+            while process.poll() is None:
+                now = time.monotonic()
+                elapsed = now - started
+                if elapsed >= timeout:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=3.0)
+                    except Exception:
+                        process.kill()
+                        process.wait(timeout=3.0)
+                    raise ProviderTimedOut(f'Offline OCR worker exceeded the page timeout of {int(timeout)} seconds.')
+                if now >= next_heartbeat:
+                    _emit(progress, provider_id=self.spec.provider_id, state='ocr-worker-heartbeat', phase='recognizing text', offline_mode='ENFORCED', profile=self.profile, pid=int(process.pid), page=page, page_offset=page_offset, total_pages=total_pages, attempt_label=attempt_label, elapsed_seconds=round(elapsed, 3))
+                    next_heartbeat = now + heartbeat_seconds
+                time.sleep(0.5)
+        elapsed = round(time.monotonic() - started, 3)
+        returncode = int(process.returncode or 0)
+        stdout = stdout_path.read_text(encoding='utf-8') if stdout_path.exists() else ''
+        stderr = stderr_path.read_text(encoding='utf-8') if stderr_path.exists() else ''
+        receipt = {
+            'run_id': run_id,
+            'offline_mode_enforced': True,
+            'profile': self.profile,
+            'image': str(image),
+            'request': str(request_path),
+            'response': str(response_path),
+            'returncode': returncode,
+            'returncode_hex': self._exit_hex(returncode),
+            'elapsed_seconds': elapsed,
+            'stdout': str(stdout_path),
+            'stderr': str(stderr_path),
+            'response_exists': response_path.is_file(),
+        }
+        receipt_path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+        _emit(progress, provider_id=self.spec.provider_id, state='ocr-worker-exited', phase='validating response', offline_mode='ENFORCED', profile=self.profile, pid=int(process.pid), page=page, page_offset=page_offset, total_pages=total_pages, attempt_label=attempt_label, elapsed_seconds=elapsed, returncode=returncode, returncode_hex=receipt['returncode_hex'])
+        if returncode != 0:
+            if self.profile == 'server' and receipt['returncode_hex'].lower() == '0xc0000005':
+                PaddleOCRProvider._high_accuracy_quarantined = True
+            detail = _sanitize_worker_error(stderr or stdout)
+            raise ProviderUnavailable(f'PaddleOCR {self.profile} local worker failed with {receipt["returncode_hex"]}. Attempt receipt: {receipt_path}. Technical summary: {detail or "unknown native exit"}')
         if not response_path.is_file():
-            raise ProviderUnavailable('PaddleOCR local worker did not write a response JSON file.')
+            raise ProviderUnavailable(f'PaddleOCR {self.profile} local worker did not write a fresh response. Attempt receipt: {receipt_path}')
+        if response_path.stat().st_mtime_ns < request_path.stat().st_mtime_ns:
+            raise ProviderUnavailable(f'PaddleOCR {self.profile} local response is stale. Attempt receipt: {receipt_path}')
         payload = json.loads(response_path.read_text(encoding='utf-8'))
-        return str(payload.get('text') or '')
+        if str(payload.get('run_id') or '') != run_id:
+            raise ProviderUnavailable(f'PaddleOCR {self.profile} local response run_id mismatch. Attempt receipt: {receipt_path}')
+        text = str(payload.get('text') or '')
+        receipt['response_fresh'] = True
+        receipt['text_chars'] = len(text)
+        receipt_path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+        return text
 
     def recognize_pdf_to_text(
         self,
@@ -502,17 +605,44 @@ class PaddleOCRProvider(OCRProvider):
         out: list[str] = []
         total = len(pages_to_run)
         for offset, page in enumerate(pages_to_run, start=1):
-            prefix = output_dir / f'page-{int(page):04d}'
-            run_hidden_cli(
-                [str(foundation.pdftoppm), '-f', str(page), '-l', str(page), '-singlefile', '-png', '-r', '250', str(source), str(prefix)],
-                check=True,
-                capture_output=True,
-                env=foundation.offline_env(),
-            )
-            _emit(progress, provider_id=self.spec.provider_id, state='ocr-page-rendered', page=int(page), page_offset=offset, total_pages=total)
-            text = self._recognize_image(prefix.with_suffix('.png'), output_dir=output_dir)
-            out.append(text)
-            _emit(progress, provider_id=self.spec.provider_id, state='ocr-page-recognized', page=int(page), page_offset=offset, total_pages=total, text_chars=len(text))
+            attempts: list[dict[str, object]] = []
+            chosen_text: str | None = None
+            chosen_provider = ''
+            if self.profile == 'mobile' or PaddleOCRProvider._high_accuracy_quarantined:
+                plan = [
+                    ('paddleocr-safe-local-180dpi', 'paddle', 'mobile', 200),
+                    ('tesseract-best-local-250dpi', 'tesseract', 'best', 250),
+                ]
+            else:
+                plan = [
+                    ('paddleocr-high-accuracy-local-200dpi', 'paddle', 'server', 200),
+                    ('paddleocr-safe-local-180dpi', 'paddle', 'mobile', 200),
+                    ('tesseract-best-local-250dpi', 'tesseract', 'best', 250),
+                ]
+            for attempt_index, (label, kind, profile, dpi) in enumerate(plan, start=1):
+                attempt_dir = output_dir / f'page-{int(page):04d}-{label}'
+                attempt_dir.mkdir(parents=True, exist_ok=True)
+                try:
+                    _emit(progress, provider_id=self.spec.provider_id, state='ocr-page-attempt', phase='rendering image', offline_mode='ENFORCED', page=int(page), page_offset=offset, total_pages=total, attempt=attempt_index, attempts_total=len(plan), attempt_label=label)
+                    if kind == 'paddle':
+                        prefix = attempt_dir / f'page-{int(page):04d}'
+                        run_hidden_cli([str(foundation.pdftoppm), '-f', str(page), '-l', str(page), '-singlefile', '-png', '-r', str(dpi), str(source), str(prefix)], check=True, capture_output=True, env=self._offline_env(foundation))
+                        text = PaddleOCRProvider(profile)._recognize_image(prefix.with_suffix('.png'), output_dir=attempt_dir, progress=progress, page=int(page), page_offset=offset, total_pages=total, attempt_label=label)
+                    else:
+                        text = TesseractOCRProvider('best').recognize_pdf_to_text(source, language=language, output_dir=attempt_dir, pages=[page], progress=progress)
+                    chosen_text = text
+                    chosen_provider = label
+                    attempts.append({'attempt': attempt_index, 'label': label, 'status': 'PASS', 'text_chars': len(text), 'offline_mode_enforced': True})
+                    break
+                except Exception as exc:
+                    attempts.append({'attempt': attempt_index, 'label': label, 'status': 'FAIL_COLLECTED', 'error': f'{type(exc).__name__}: {exc}', 'offline_mode_enforced': True})
+                    _emit(progress, provider_id=self.spec.provider_id, state='ocr-page-fallback', phase='fallback activated', offline_mode='ENFORCED', page=int(page), page_offset=offset, total_pages=total, attempt=attempt_index, attempts_total=len(plan), attempt_label=label, error=f'{type(exc).__name__}: {exc}')
+            fallback_receipt = output_dir / f'page-{int(page):04d}.fallback-receipt.json'
+            fallback_receipt.write_text(json.dumps({'page': int(page), 'offline_mode_enforced': True, 'attempts': attempts, 'chosen_provider': chosen_provider}, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+            if chosen_text is None:
+                raise ProviderUnavailable(f'All fully offline OCR attempts failed for source page {page}. Receipt: {fallback_receipt}')
+            out.append(chosen_text)
+            _emit(progress, provider_id=self.spec.provider_id, state='ocr-page-recognized', phase='checkpoint ready', offline_mode='ENFORCED', page=int(page), page_offset=offset, total_pages=total, text_chars=len(chosen_text), actual_provider=chosen_provider)
         return '\f'.join(out)
 
 
@@ -522,8 +652,8 @@ class TesseractOCRProvider(OCRProvider):
     def __init__(self, profile: str = 'fast') -> None:
         self.profile = profile if profile in {'fast', 'best'} else 'fast'
         provider_id = 'tesseract-local' if self.profile == 'fast' else 'tesseract-local-best'
-        label = 'Tesseract local OCR · fast fallback' if self.profile == 'fast' else 'Tesseract local OCR · best accuracy'
-        self.spec = ProviderSpec(provider_id, 'ocr', label, 'local-process', 'enabled-when-installed', True, notes='Governed offline local OCR fallback Provider.')
+        label = 'Tesseract local OCR | fast fallback' if self.profile == 'fast' else 'Tesseract | Best local fallback'
+        self.spec = ProviderSpec(provider_id, 'ocr', label, 'local-process', 'enabled-when-installed', True, notes='Governed offline local OCR fallback Provider with ASCII-safe Windows staging.')
 
     @staticmethod
     def _foundation():
@@ -536,60 +666,46 @@ class TesseractOCRProvider(OCRProvider):
             return True, f'Tesseract {self.profile} profile and Poppler detected in the governed local OCR runtime.'
         return False, f'Tesseract {self.profile} profile is not deployed. Use Install / repair local OCR foundation.'
 
-    @staticmethod
-    def _lang(language: str) -> str:
-        return {'chinese': 'chi_sim+eng', 'english': 'eng', 'mixed': 'chi_sim+eng', 'other': 'eng', 'uncertain': 'chi_sim+eng'}.get(language, 'chi_sim+eng')
-
     def installed_languages(self) -> set[str]:
         foundation = self._foundation()
         if not foundation.tesseract.is_file():
             return set()
         result = run_hidden_cli([str(foundation.tesseract), '--tessdata-dir', str(foundation.tessdata(self.profile)), '--list-langs'], capture_output=True, text=True, check=False, env=foundation.tesseract_env(self.profile))
-        return {line.strip() for line in result.stdout.splitlines()[1:] if line.strip()}
+        return {line.strip() for line in str(result.stdout or '').splitlines()[1:] if line.strip()}
 
-    def recognize_pdf_to_text(
-        self,
-        source: Path,
-        *,
-        language: str,
-        output_dir: Path,
-        pages: Iterable[int] | None = None,
-        progress: ProviderProgressCallback | None = None,
-    ) -> str:
+    def _languages(self, language: str) -> str:
+        installed = self.installed_languages()
+        requested = ['eng'] if language == 'english' else ['chi_sim', 'eng']
+        usable = [name for name in requested if name in installed]
+        if not usable:
+            raise ProviderUnavailable(f'Tesseract language packs missing. Installed: {sorted(installed)}')
+        return '+'.join(usable)
+
+    def recognize_pdf_to_text(self, source: Path, *, language: str, output_dir: Path, pages: Iterable[int] | None = None, progress: ProviderProgressCallback | None = None) -> str:
         available, reason = self.available()
         if not available:
             raise ProviderUnavailable(reason)
         foundation = self._foundation()
+        output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        languages = self._lang(language)
-        missing = set(languages.split('+')) - self.installed_languages()
-        if missing:
-            raise ProviderUnavailable(f'Tesseract language packs missing: {sorted(missing)}')
+        staging = output_dir / '_ascii_staging'
+        staging.mkdir(parents=True, exist_ok=True)
+        languages = self._languages(language)
         pages_to_run = list(pages or [])
         if not pages_to_run:
             raise ProviderUnavailable('Tesseract page-level execution requires an explicit page list.')
         out: list[str] = []
         total = len(pages_to_run)
         for offset, page in enumerate(pages_to_run, start=1):
-            prefix = output_dir / f'page-{int(page):04d}'
-            run_hidden_cli(
-                [str(foundation.pdftoppm), '-f', str(page), '-l', str(page), '-singlefile', '-png', '-r', '250', str(source), str(prefix)],
-                check=True,
-                capture_output=True,
-                env=foundation.tesseract_env(self.profile),
-            )
-            _emit(progress, provider_id=self.spec.provider_id, state='ocr-page-rendered', page=int(page), page_offset=offset, total_pages=total)
-            result = run_hidden_cli(
-                [str(foundation.tesseract), '--tessdata-dir', str(foundation.tessdata(self.profile)), str(prefix.with_suffix('.png')), 'stdout', '-l', languages],
-                capture_output=True,
-                check=False,
-                env=foundation.tesseract_env(self.profile),
-            )
+            prefix = staging / f'page-{int(page):04d}'
+            run_hidden_cli([str(foundation.pdftoppm), '-f', str(page), '-l', str(page), '-singlefile', '-png', '-r', '200', str(source), str(prefix)], check=True, capture_output=True, env=foundation.tesseract_env(self.profile))
+            _emit(progress, provider_id=self.spec.provider_id, state='ocr-page-rendered', phase='rendering ASCII-safe fallback image', page=int(page), page_offset=offset, total_pages=total)
+            result = run_hidden_cli([str(foundation.tesseract), '--tessdata-dir', str(foundation.tessdata(self.profile)), str(prefix.with_suffix('.png')), 'stdout', '-l', languages], capture_output=True, check=False, env=foundation.tesseract_env(self.profile))
             if result.returncode != 0:
                 raise RuntimeError((result.stderr or b'').decode('utf-8', 'replace') if isinstance(result.stderr, (bytes, bytearray)) else str(result.stderr or 'Tesseract failed.'))
             text = result.stdout.decode('utf-8', 'replace') if isinstance(result.stdout, (bytes, bytearray)) else str(result.stdout or '')
             out.append(text)
-            _emit(progress, provider_id=self.spec.provider_id, state='ocr-page-recognized', page=int(page), page_offset=offset, total_pages=total, text_chars=len(text))
+            _emit(progress, provider_id=self.spec.provider_id, state='ocr-page-recognized', phase='checkpoint ready', page=int(page), page_offset=offset, total_pages=total, text_chars=len(text))
         return '\f'.join(out)
 
 

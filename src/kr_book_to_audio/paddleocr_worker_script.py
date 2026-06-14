@@ -9,6 +9,12 @@ import os
 import sys
 
 
+try:
+    sys.stdout.reconfigure(encoding='utf-8', errors='backslashreplace')
+except (AttributeError, OSError):
+    pass
+
+
 def collect_strings(value):
     out = []
     if isinstance(value, str):
@@ -46,10 +52,14 @@ def main(argv=None):
     request = json.loads(request_path.read_text(encoding='utf-8'))
     image = Path(request['image'])
     output = Path(request['output'])
+    run_id = str(request.get('run_id') or '').strip()
+    if not run_id:
+        raise RuntimeError('OCR worker request is missing run_id')
     det_name = str(request['text_detection_model_name'])
     det = Path(request['text_detection_model_dir'])
     rec_name = str(request['text_recognition_model_name'])
     rec = Path(request['text_recognition_model_dir'])
+    cpu_threads = max(1, min(4, int(request.get('cpu_threads') or 2)))
     if not image.is_file():
         raise RuntimeError(f'Image is missing: {image}')
     for model in (det, rec):
@@ -68,7 +78,7 @@ def main(argv=None):
         use_textline_orientation=False,
         device='cpu',
         enable_mkldnn=False,
-        cpu_threads=1,
+        cpu_threads=cpu_threads,
     )
     if hasattr(engine, 'predict'):
         result = engine.predict(input=str(image))
@@ -76,8 +86,8 @@ def main(argv=None):
         result = engine.ocr(str(image), cls=False)
     lines = [line.strip() for line in collect_strings(result) if str(line).strip()]
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps({'text': '\n'.join(lines), 'lines': lines}, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-    print(json.dumps({'ok': True, 'line_count': len(lines), 'output': str(output)}, ensure_ascii=False))
+    output.write_text(json.dumps({'run_id': run_id, 'text': '\n'.join(lines), 'lines': lines}, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    print(json.dumps({'ok': True, 'run_id': run_id, 'line_count': len(lines), 'output': str(output)}, ensure_ascii=True))
     return 0
 
 

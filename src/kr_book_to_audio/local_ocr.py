@@ -180,9 +180,16 @@ class LocalOCRFoundation:
             'HF_DATASETS_OFFLINE': '1',
             'PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK': 'True',
             'FLAGS_use_mkldnn': '0',
+            'PYTHONUTF8': '1',
+            'PYTHONIOENCODING': 'utf-8',
         })
         if extra:
             env.update({str(key): str(value) for key, value in extra.items()})
+        for key in ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy'):
+            env.pop(key, None)
+        env['NO_PROXY'] = '*'
+        env['no_proxy'] = '*'
+        env['KR_B2A_OCR_OFFLINE_ONLY'] = '1'
         return env
 
     def tesseract_env(self, profile: str = 'fast') -> dict[str, str]:

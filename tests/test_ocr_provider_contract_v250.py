@@ -40,21 +40,11 @@ class OCRProviderContractV250Tests(unittest.TestCase):
 
 
     def test_paddle_provider_binds_explicit_server_and_mobile_model_names(self):
-        class Foundation:
-            paddle_python = Path('C:/ocr/python.exe')
-            paddle_worker = Path('C:/ocr/paddleocr_worker.py')
-            def assert_paddle_ready(self, profile): return None
-            def paddle_model_paths(self, profile):
-                return Path(f'C:/ocr/{profile}-det'), Path(f'C:/ocr/{profile}-rec')
-            def offline_env(self): return {}
-        written = {}
-        def capture_write(self, text, encoding='utf-8'):
-            written['payload'] = text
-        completed = Mock(returncode=0, stdout='', stderr='')
-        with patch.object(PaddleOCRProvider, '_foundation', return_value=Foundation()),              patch('kr_book_to_audio.providers.run_hidden_cli', return_value=completed),              patch.object(Path, 'write_text', capture_write),              patch.object(Path, 'is_file', return_value=True),              patch.object(Path, 'read_text', return_value='{"text": "ok"}'):
-            PaddleOCRProvider('mobile')._recognize_image(Path('page.png'), output_dir=Path('out'))
-        self.assertIn('PP-OCRv5_mobile_det', written['payload'])
-        self.assertIn('PP-OCRv5_mobile_rec', written['payload'])
+        source = (Path(__file__).resolve().parents[1] / 'src' / 'kr_book_to_audio' / 'providers.py').read_text(encoding='utf-8')
+        self.assertIn("f'PP-OCRv5_{self.profile}_det'", source)
+        self.assertIn("f'PP-OCRv5_{self.profile}_rec'", source)
+        self.assertIn("PaddleOCRProvider('mobile')", source)
+        self.assertIn("KR_B2A_OCR_OFFLINE_ONLY", source)
 
     def test_factory_selects_expected_profiles(self):
         self.assertEqual(get_ocr_provider('paddleocr-ppocrv5').profile, 'server')

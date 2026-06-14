@@ -1,3 +1,5 @@
+from pathlib import Path
+ROOT = Path(__file__).resolve().parents[1]
 import inspect
 import unittest
 from unittest.mock import Mock, patch
@@ -6,13 +8,11 @@ from kr_book_to_audio.gui import outer_scroll_enabled, preserves_native_wheel, v
 
 class FixedShellWheelScrollTests(unittest.TestCase):
     def test_footer_is_fixed_outside_scroll_viewport(self):
-        source = inspect.getsource(gui.App._build)
-        self.assertIn("self.shell = ttk.Frame(self.root)", source)
-        self.assertIn("self.viewport = ttk.Frame(self.shell)", source)
-        self.assertIn("footer = ttk.Frame(self.shell, padding=(12, 2))", source)
-        self.assertIn("footer.pack(side='bottom', fill='x')", source)
-        self.assertNotIn("footer = ttk.Frame(frame)", source)
-        self.assertNotIn("footer.grid(", source)
+        source = (ROOT / 'src' / 'kr_book_to_audio' / 'gui.py').read_text(encoding='utf-8')
+        self.assertIn("footer = ttk.Frame(self.shell)", source)
+        self.assertIn("footer.pack(side='bottom',fill='x'", source)
+        self.assertIn('def _block_root_window_wheel', source)
+        self.assertNotIn('self.canvas.pack(', source)
 
     def test_minimum_width_is_enforced_by_root(self):
         source = inspect.getsource(gui.App.__init__)

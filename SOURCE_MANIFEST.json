@@ -1,0 +1,863 @@
+{
+  "release_token": "KR_Book_To_Audio_Local_Acceptance_3.0_RELEASE_V32_20260613_221853",
+  "source_root": "C:\\Users\\Kentr\\AppData\\Local\\Temp\\kr-b2a-v300-release-v32-20260613_211309\\source",
+  "generated_at": "2026-06-14T06:16:30.052020+00:00",
+  "file_count": 171,
+  "files": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "bytes": 968,
+      "sha256": "d1be8ce8b485e586d2f692b7e126783a99a664e44ece65bd6c851d57ab16d1e4"
+    },
+    {
+      "path": ".gitignore",
+      "bytes": 131,
+      "sha256": "35a4b7a56a079e713a7328b220aa728c5975870566fe6a473720a0d5e67094f3"
+    },
+    {
+      "path": "CHANGELOG.md",
+      "bytes": 14094,
+      "sha256": "8eea9cde0dc2e03a6c79dab7388d29a1f38d4dd46b5cf06561a873cbc5660562"
+    },
+    {
+      "path": "docs/ARCHITECTURE.md",
+      "bytes": 13919,
+      "sha256": "e4fc7939b9f09513bf3686919963d60a8f6373e8d01857b29a2f43694aa81ba0"
+    },
+    {
+      "path": "docs/images/kr_book_to_audio_gui_istanbul_release_2_0.png",
+      "bytes": 337698,
+      "sha256": "9bfdf800cef8f6c15600085e0d82444d4c57a832edae7048405bd5eac5a3bf45"
+    },
+    {
+      "path": "docs/images/kr_book_to_audio_gui_istanbul_release_v2_0_1.png",
+      "bytes": 523014,
+      "sha256": "33f099633b12bf859f811dde0b44f9b2bc69fb7450878abe21f8008b6949248d"
+    },
+    {
+      "path": "docs/images/kr_book_to_audio_gui_istanbul_release_v2_1_0.png",
+      "bytes": 475019,
+      "sha256": "2a4ee69849c1ed38c11844d68091c0c4bc7bfefc0e1cf8685956791a75d466bf"
+    },
+    {
+      "path": "docs/images/kr_book_to_audio_gui_istanbul_release_v2_4_1.png",
+      "bytes": 446411,
+      "sha256": "c7dfbc85c3bb0a24a1dbbc2d8d9d729f065cb80d973c961720579b2a176129b3"
+    },
+    {
+      "path": "docs/KR_OCR_LOCAL_FOUNDATION.md",
+      "bytes": 3037,
+      "sha256": "9bb5260e569394aa4e7919a03c7b7563f708eb8e240d2604b2d91b222c1dcba6"
+    },
+    {
+      "path": "docs/KR_TTS_Coding_SOP.md",
+      "bytes": 12441,
+      "sha256": "6d0169182c00f80b1eaeddf4d29388aa0c39b0894fd5a672175502149b334c8a"
+    },
+    {
+      "path": "docs/RELEASE_NOTES_ISTANBUL_RELEASE_v1.0.0.md",
+      "bytes": 1036,
+      "sha256": "b226544d008b668fda6ef419ea96030bd34cb971fde51f30ca10843442669f1d"
+    },
+    {
+      "path": "docs/RELEASE_NOTES_ISTANBUL_RELEASE_v1.1.0.md",
+      "bytes": 1034,
+      "sha256": "e067bf3f937d28567cb6e08a2180beee2c601729fac64fe6769d4e6d979dbc43"
+    },
+    {
+      "path": "docs/RELEASE_NOTES_ISTANBUL_RELEASE_v1.1.1.md",
+      "bytes": 815,
+      "sha256": "fba4e1fee8be00a07202cbb51b494cb65919f155741368316bcf3921b13d5cf6"
+    },
+    {
+      "path": "docs/RELEASE_NOTES_ISTANBUL_RELEASE_v1.2.0.md",
+      "bytes": 702,
+      "sha256": "1eaec116cbf3a9b16ca69a8ebb02accf6ba69555b32000d070fabf23ed5a8fb9"
+    },
+    {
+      "path": "docs/RELEASE_NOTES_ISTANBUL_RELEASE_v1.3.0.md",
+      "bytes": 813,
+      "sha256": "6453b3557135270db1b0c619e01145c22c900502b29604241bf6607951738843"
+    },
+    {
+      "path": "docs/RELEASE_NOTES_ISTANBUL_RELEASE_v1.3.1.md",
+      "bytes": 691,
+      "sha256": "c9a1b0a67f1d6e6251e2014d35d07d21dcbcb7e5eba3a73629ea91f82fecd18e"
+    },
+    {
+      "path": "docs/RELEASE_NOTES_ISTANBUL_RELEASE_v1.3.2.md",
+      "bytes": 1016,
+      "sha256": "7eab60110dc0e3e2cd8f35a77352f9360697f51c11b84fdf4b32787e37d7ef31"
+    },
+    {
+      "path": "docs/RELEASE_NOTES_ISTANBUL_RELEASE_v1.3.3.md",
+      "bytes": 434,
+      "sha256": "af3924265e49397fc154ce3bd77abdb4534a22e4f2925e65f151a4b7c97cda8d"
+    },
+    {
+      "path": "docs/RELEASE_NOTES_ISTANBUL_RELEASE_v1.3.4.md",
+      "bytes": 937,
+      "sha256": "d05a2948025489e218bffe02003db22bf3cfd3a0828fd39c288f730f6846b817"
+    },
+    {
+      "path": "docs/RELEASE_NOTES_ISTANBUL_RELEASE_v2.0.0.md",
+      "bytes": 1138,
+      "sha256": "d9f5465da3237d715bf3a3a5178a249defa1bbd5772eb46607282143ac09d8b4"
+    },
+    {
+      "path": "docs/RELEASE_NOTES_ISTANBUL_RELEASE_v2.0.1.md",
+      "bytes": 1193,
+      "sha256": "bb3c7f549792d5dc7ea14b214d111efd303e1e31f27d5200c26924876f53f109"
+    },
+    {
+      "path": "docs/RELEASE_NOTES_ISTANBUL_RELEASE_v2.1.0.md",
+      "bytes": 975,
+      "sha256": "0353990cba30493d2ea44b2b844b8b7beff7f9f5e7219fc155d0927ba9104a79"
+    },
+    {
+      "path": "docs/RELEASE_NOTES_ISTANBUL_RELEASE_v2.3.0.md",
+      "bytes": 1016,
+      "sha256": "838aab0edf9eae4ddc0e3d786304435e34d15ccec6c1a871df9a195d218c204f"
+    },
+    {
+      "path": "docs/RELEASE_NOTES_ISTANBUL_RELEASE_v2.3.1.md",
+      "bytes": 951,
+      "sha256": "b4d8a7456dee0c60f8904d2daf3faca7c16a858d081ad48efa0d4d28c2b7a7c9"
+    },
+    {
+      "path": "docs/RELEASE_NOTES_ISTANBUL_RELEASE_v2.3.2.md",
+      "bytes": 1065,
+      "sha256": "c661fc55f309be0c8c59cd2ec971192dfde694d957d4fffb8168692e5ea6f569"
+    },
+    {
+      "path": "docs/RELEASE_NOTES_ISTANBUL_RELEASE_v2.3.3.md",
+      "bytes": 1296,
+      "sha256": "cd53947b73cc6b543c8bb2e05820691bd617df981a3163188da4e6dbf63bb2c5"
+    },
+    {
+      "path": "docs/RELEASE_NOTES_ISTANBUL_RELEASE_v2.4.0.md",
+      "bytes": 2718,
+      "sha256": "b89658398345966946eb9452d98ecb06a367214d92d2a4e922ff1faa307d0a4d"
+    },
+    {
+      "path": "docs/RELEASE_NOTES_ISTANBUL_RELEASE_v2.4.1.md",
+      "bytes": 1653,
+      "sha256": "946a8d450ba608bea3af4f368d300421af4e48e13d20b79cd04d016440455483"
+    },
+    {
+      "path": "docs/RELEASE_NOTES_ISTANBUL_RELEASE_v2.5.0.md",
+      "bytes": 1980,
+      "sha256": "17aaa51f4e0705af1d9c3101027da00ee4a88eb16aa576d73ae094283872d0e5"
+    },
+    {
+      "path": "packaging/KRBookToAudio.spec",
+      "bytes": 1724,
+      "sha256": "4849b1fab1b3b57d54cea19ac2a2b98e7e9d1592e9b75e741311478a337e9a00"
+    },
+    {
+      "path": "packaging/README_PORTABLE.md",
+      "bytes": 4353,
+      "sha256": "46dc7d542dc13e83060d77b040ffb0738fc99dc18b54b87725c25b6be7807dcd"
+    },
+    {
+      "path": "packaging/verify_outer_scroll_windows.py",
+      "bytes": 4736,
+      "sha256": "0ab683190dc21139fb090e7854dd9fddf8d2a81657918f68e486d6e4c4cb3170"
+    },
+    {
+      "path": "packaging/verify_portable_windows.py",
+      "bytes": 4791,
+      "sha256": "4283fe99a93265adfd56e0b2957395de0a4fb00011d6a2b914921db7e853a1d1"
+    },
+    {
+      "path": "pyproject.toml",
+      "bytes": 834,
+      "sha256": "622499482043965f7e8c235c5b6308daaf4a020f0bbc1aa89ad217dfd64a3312"
+    },
+    {
+      "path": "README.md",
+      "bytes": 21254,
+      "sha256": "77e78ee64e2258391f7c384e444038fd729892d7b7fee6bc0945a50affac2a42"
+    },
+    {
+      "path": "src/kr_book_to_audio/__init__.py",
+      "bytes": 64,
+      "sha256": "453943fa6e7428edb17f364c83b5bbb613b27a2c28582746c893f040898ebe33"
+    },
+    {
+      "path": "src/kr_book_to_audio/assets/branding/ba_round_corner_small_square_fill-800.png",
+      "bytes": 23576,
+      "sha256": "f6d8382209a656122f1488161a182711b7d13b2ab3a52c5ab88e145335f31065"
+    },
+    {
+      "path": "src/kr_book_to_audio/assets/branding/ba_roundcorner_square_fill.svg",
+      "bytes": 3556,
+      "sha256": "9930b26267f867a36c544d6205d0928d1494ccfe8388566b6949dbb717b52186"
+    },
+    {
+      "path": "src/kr_book_to_audio/assets/branding/kr_book_to_audio.ico",
+      "bytes": 28604,
+      "sha256": "871504aa64f38fa28fc67975b2ce04dc7b2695d61a2c5ae8cc24b877a89ee46e"
+    },
+    {
+      "path": "src/kr_book_to_audio/audio.py",
+      "bytes": 31977,
+      "sha256": "894c3589c36de74b4b7af34f049960ddeccfed28f1b39f32ef3f2f260cfe906b"
+    },
+    {
+      "path": "src/kr_book_to_audio/cli.py",
+      "bytes": 8381,
+      "sha256": "3dc58e428d337769dfb2c21246ac714e3153da423fc700830d063f7703c7331e"
+    },
+    {
+      "path": "src/kr_book_to_audio/config.py",
+      "bytes": 1943,
+      "sha256": "4e6cef3b3ffaf38fb5789298bccf5e9318c58f7583ed09a1c358f72a72c36148"
+    },
+    {
+      "path": "src/kr_book_to_audio/diagnostics.py",
+      "bytes": 6189,
+      "sha256": "2d52ecced45a5757523d07b313bd9397c0ea2ef149c50e8a3e41b5cd177b0699"
+    },
+    {
+      "path": "src/kr_book_to_audio/durable_io.py",
+      "bytes": 6729,
+      "sha256": "4e4964dc1025fda406eb01b45ccf859d41d4b32da107f8cd5425f0b431943b9a"
+    },
+    {
+      "path": "src/kr_book_to_audio/edge_voice_samples.py",
+      "bytes": 26358,
+      "sha256": "e697c2d5e29c9f8573dc7c4474ea3d44065935b86542a15ac9a3efc1a947068a"
+    },
+    {
+      "path": "src/kr_book_to_audio/execution.py",
+      "bytes": 2986,
+      "sha256": "978eb5e970f3836e1e25a4946df7174138e34f32c7a56d39fcfcedfb7907b8d9"
+    },
+    {
+      "path": "src/kr_book_to_audio/export.py",
+      "bytes": 17309,
+      "sha256": "aa11e6aa2a60ce0e2f146aea6b928e193a77e0adc94eb337fc689e7ad94e5353"
+    },
+    {
+      "path": "src/kr_book_to_audio/extractors.py",
+      "bytes": 11896,
+      "sha256": "4d41f956b7be6d65fd9cdcfe7a4544b44a5c95ccc3baab0cbcdc82876d6e84ad"
+    },
+    {
+      "path": "src/kr_book_to_audio/gui.py",
+      "bytes": 154911,
+      "sha256": "3cb5384caf9cbc6568ad759a1e5344fc0177590bab226634441e7b893ce231a2"
+    },
+    {
+      "path": "src/kr_book_to_audio/gui_runtime_probe.py",
+      "bytes": 5570,
+      "sha256": "8ce87480b6acdaa23dcb1a6454ead5ac594cd8308ac360ca1400fbfd8288b815"
+    },
+    {
+      "path": "src/kr_book_to_audio/history.py",
+      "bytes": 12259,
+      "sha256": "2081f41ada83804d9e29c52fa64ec5628740435340d042304e70df2cfc4e516e"
+    },
+    {
+      "path": "src/kr_book_to_audio/job_state.py",
+      "bytes": 10998,
+      "sha256": "43d7a754be71f4fefa1a0df4401fd71dd46033cd593cd4b9efe7af1061cdbcf4"
+    },
+    {
+      "path": "src/kr_book_to_audio/local_ocr.py",
+      "bytes": 10032,
+      "sha256": "d783e72b908b9afd4a213e8f4c5ee2bd9aa6dc99a8e713a420c261b201405447"
+    },
+    {
+      "path": "src/kr_book_to_audio/local_ocr_setup.py",
+      "bytes": 49780,
+      "sha256": "f0a6697320356350b8056a8a724782d531d54524b93caf8b75805da2f1898e6b"
+    },
+    {
+      "path": "src/kr_book_to_audio/local_tts.py",
+      "bytes": 4238,
+      "sha256": "3a8a27075f860b614b694fdaa29b8a6a70c723264678c5966d3f298b129c00ef"
+    },
+    {
+      "path": "src/kr_book_to_audio/manifest.py",
+      "bytes": 5380,
+      "sha256": "0c2cb33b1481f6b5276325f466a875c75a713f54c679e4df96359246700f26c9"
+    },
+    {
+      "path": "src/kr_book_to_audio/models.py",
+      "bytes": 2801,
+      "sha256": "73254f51dc405c4c184403f13cc036a85351ecaf2e20e0ce16e04f8f93fb62ea"
+    },
+    {
+      "path": "src/kr_book_to_audio/ocr.py",
+      "bytes": 20912,
+      "sha256": "7169f29f65cc2c86c298a591f47f2c4c78aeec44788832eaa7fc99e9dd610b0f"
+    },
+    {
+      "path": "src/kr_book_to_audio/ocr_workflow_ui.py",
+      "bytes": 4497,
+      "sha256": "c37d1bd7f349ab323b321145f6fdc2030ce8fa331ae38d656f7a36586bb5d399"
+    },
+    {
+      "path": "src/kr_book_to_audio/paddleocr_worker_script.py",
+      "bytes": 3726,
+      "sha256": "3d19cc7aa94c4a0f4723371a51f0e2feb406cceb34caf03974ad697f4d9503e4"
+    },
+    {
+      "path": "src/kr_book_to_audio/pipeline.py",
+      "bytes": 9899,
+      "sha256": "10769cca7da8f0837ffea3bb15f8b95852ee8baf848fa14e1f9cce4edb4b25ea"
+    },
+    {
+      "path": "src/kr_book_to_audio/portable.py",
+      "bytes": 3063,
+      "sha256": "17124acfb19b754efba00836424ececadf6cef70077c11dc2072a63da3ec19fb"
+    },
+    {
+      "path": "src/kr_book_to_audio/power.py",
+      "bytes": 943,
+      "sha256": "d7a468bada079cb96218930a4420e628e82433ace7ac2ffb2d26d7b7d950304d"
+    },
+    {
+      "path": "src/kr_book_to_audio/providers.py",
+      "bytes": 40640,
+      "sha256": "6200e37dad8a9952417baa6379f242e08e353df3a996967a9fb9145936216339"
+    },
+    {
+      "path": "src/kr_book_to_audio/recovery.py",
+      "bytes": 2885,
+      "sha256": "24c251645dbe7b28cecb57ffd242151164c9aba36ab5a9859e16bfc222c82c56"
+    },
+    {
+      "path": "src/kr_book_to_audio/state.py",
+      "bytes": 5335,
+      "sha256": "31fb42fd701980a7bc8dd23682347cdc6abfe505b09a0c4050d2a7b4ab0032ca"
+    },
+    {
+      "path": "src/kr_book_to_audio/subprocess_utils.py",
+      "bytes": 3651,
+      "sha256": "6a99707130f74e8630011d033ca086b42675666a572967717b025f9f3f46de0c"
+    },
+    {
+      "path": "src/kr_book_to_audio/text_processing.py",
+      "bytes": 12184,
+      "sha256": "8307612b266c6823d185ad943e908dc41ac76718ca1a72b32630da57ddf66fa0"
+    },
+    {
+      "path": "src/kr_book_to_audio/ui_v295.py",
+      "bytes": 4407,
+      "sha256": "45b1248c4db2e0bbff547247b743efc7ff8a0c0e34f6603faad7cba399cad33a"
+    },
+    {
+      "path": "src/kr_book_to_audio/utils.py",
+      "bytes": 6376,
+      "sha256": "bf433bd34bbe7d366ccd1ae9434aea0378a942a2c2d7db71ed26f2b823dab70b"
+    },
+    {
+      "path": "src/kr_book_to_audio/voices.py",
+      "bytes": 2912,
+      "sha256": "671f0cff0d0e5d99490ee61c3ce1349e08a943019724b518fe0d6bc5b8a26d29"
+    },
+    {
+      "path": "src/kr_book_to_audio/workflow_completion_ui.py",
+      "bytes": 5094,
+      "sha256": "74c26b38d1b9a8ec68e178c18147541834620a0b7a495046126158c637f0138c"
+    },
+    {
+      "path": "src/kr_book_to_audio/workflow_state.py",
+      "bytes": 5209,
+      "sha256": "409a4a4652b05c2b42373bbcc14dc67ae1a7d265f7cbb579668a018b54df9098"
+    },
+    {
+      "path": "src/kr_book_to_audio.py",
+      "bytes": 117,
+      "sha256": "a2ba940c147040e2ef21b31e5523373b381c7f106de25c441a77708a9de8a149"
+    },
+    {
+      "path": "src/kr_book_to_audio_gui.py",
+      "bytes": 296,
+      "sha256": "2adc5514b90f0765872e84b76fe6a0aad59bb4dadaca98e516e72a8b0dc3eace"
+    },
+    {
+      "path": "tests/helpers.py",
+      "bytes": 1884,
+      "sha256": "b4814cdeb618cdff56db60a04a099993bf0ec5514def7948b2bed1f63bd07825"
+    },
+    {
+      "path": "tests/test_audio_atomic.py",
+      "bytes": 798,
+      "sha256": "c4e45be983736a123653bd5731b86a8b14be6a95eff5f86c2e5d2834cc49ea92"
+    },
+    {
+      "path": "tests/test_audio_merge_real.py",
+      "bytes": 1865,
+      "sha256": "d2d458cbf307a930512e2c84dff0f2e1dc15d96499697eef16402f0316e47272"
+    },
+    {
+      "path": "tests/test_audio_provider_backpressure_v241.py",
+      "bytes": 1261,
+      "sha256": "7222b72deee9e3e132146a1dba7ea58001a4a00c592842a4c3c33dc948390188"
+    },
+    {
+      "path": "tests/test_audio_provider_telemetry.py",
+      "bytes": 1931,
+      "sha256": "dccd36726b23cb3fdc996e8d8b820f745d61d75e65ba1b60d6f51711348024ba"
+    },
+    {
+      "path": "tests/test_branding_assets.py",
+      "bytes": 2059,
+      "sha256": "eea340898fe75eb006299e43c27ff984346306f2d5c4ca082ddfd1befeb2fc98"
+    },
+    {
+      "path": "tests/test_ci_release_contract.py",
+      "bytes": 1105,
+      "sha256": "1a6cd9a0e020594a3edbcca3871f793b8fb41731a289086a0028efda15bb21bc"
+    },
+    {
+      "path": "tests/test_cleanup_advisor.py",
+      "bytes": 2279,
+      "sha256": "0461934626f0a36badf0784fb55f845575a76feabc065a4d9bf25042c87fc1e6"
+    },
+    {
+      "path": "tests/test_config_migration.py",
+      "bytes": 696,
+      "sha256": "185d051296df6b4afe97fdfd70460c4bad78a3a4091cc38d4b779d86017e0407"
+    },
+    {
+      "path": "tests/test_datetime_cleanup.py",
+      "bytes": 1293,
+      "sha256": "e6f1c3bf767758ee9f31188928405605c3037ab0480b77fce0d350a7b5ff58cd"
+    },
+    {
+      "path": "tests/test_diagnostics_export.py",
+      "bytes": 3275,
+      "sha256": "b874b477bc902ed5a030b47132d6e81d0fa525d465093a25fe98de1052f0b01a"
+    },
+    {
+      "path": "tests/test_durable_io.py",
+      "bytes": 4027,
+      "sha256": "3968f3d0b3c6f2609cc3dee4ac4fe253e4ec44c2351f98f22c72ccbf2a8585d9"
+    },
+    {
+      "path": "tests/test_edge_streaming_watchdog.py",
+      "bytes": 2908,
+      "sha256": "f0e6c76748309ceb76db21a65e4d1c41d0b562d892f29658d1938c260f001a36"
+    },
+    {
+      "path": "tests/test_execution_checkpoint.py",
+      "bytes": 1748,
+      "sha256": "49aba0ff5484dcd30a5babcb43baadbece205500d337623d7b2c495516c84ee5"
+    },
+    {
+      "path": "tests/test_export_finalization.py",
+      "bytes": 6828,
+      "sha256": "d4ff22bf448acbd7715d8f2bcbf50e77dd10da7384b0e6e62839ce17c7682914"
+    },
+    {
+      "path": "tests/test_extractors.py",
+      "bytes": 1161,
+      "sha256": "8d27ed8629f7f7a4e06d75aee3d75ee5c126fb048a3f8deee84c88b383ede48e"
+    },
+    {
+      "path": "tests/test_fixed_shell_wheel_scroll.py",
+      "bytes": 4906,
+      "sha256": "166f260c34759f818a137c501b4b6dd3110349db8f6b83347936a9f1a755110b"
+    },
+    {
+      "path": "tests/test_flat_export_v240.py",
+      "bytes": 2387,
+      "sha256": "bf0a846215daee4dcc31131b99bf9d01a11248dd1f019f127f18b789c436cee5"
+    },
+    {
+      "path": "tests/test_gui_busy_guard.py",
+      "bytes": 466,
+      "sha256": "88d8affb6b3c93d64026dcce74d04bb804068e1418d1e87aaaa8bdbe9e5cabf7"
+    },
+    {
+      "path": "tests/test_gui_direct_synthesize_v250.py",
+      "bytes": 806,
+      "sha256": "945813b0000cf8d89348c885c5f1b179a490f34f551b17f684d8d9d23e5f564d"
+    },
+    {
+      "path": "tests/test_gui_event_backpressure_v241.py",
+      "bytes": 7780,
+      "sha256": "7ddbe9b4f3de006ec9102d356d7d2120298aec2c3378ac64a07c7ac054a52ae6"
+    },
+    {
+      "path": "tests/test_gui_open_paths.py",
+      "bytes": 3321,
+      "sha256": "09168d471eaa447057a64868a4de6aadf53acc451a20474126197cdfa9321811"
+    },
+    {
+      "path": "tests/test_gui_surface.py",
+      "bytes": 802,
+      "sha256": "ca1c32706d9c4514925ab41e1fdf7e5b5de793230a550960e197ea25e0c5fe42"
+    },
+    {
+      "path": "tests/test_history_index.py",
+      "bytes": 8930,
+      "sha256": "6f3dfe00ce96af156dc836222b7fe2af14e3b054e72637db13f873f2af0e786b"
+    },
+    {
+      "path": "tests/test_job_state_engine.py",
+      "bytes": 4332,
+      "sha256": "d14b47845b9e265290b2c96e2c77aa1de2a77aac3a273beb65633142bd21f937"
+    },
+    {
+      "path": "tests/test_kokoro_heartbeat_v241.py",
+      "bytes": 3881,
+      "sha256": "53a7279620ee9514d7d6c1a03d2c9c90589f09fd5c77c9864f0faf71d85999e6"
+    },
+    {
+      "path": "tests/test_local_ocr_foundation_v250.py",
+      "bytes": 33311,
+      "sha256": "e87abe1a06b76f6ef1e8bfe8789f48d66aa813be6d68d72ed7f3e0b5cf190812"
+    },
+    {
+      "path": "tests/test_local_tts_foundation.py",
+      "bytes": 9347,
+      "sha256": "67e40bf32221601891137baa4453597b542166434cb56e9701dcb5f96c6994e0"
+    },
+    {
+      "path": "tests/test_manifest_integrity.py",
+      "bytes": 2749,
+      "sha256": "9b35ae698d9c8c71d41bac6718d1da8ce4c15b2f5678e90d5117f5d85d85de07"
+    },
+    {
+      "path": "tests/test_manifest_migration.py",
+      "bytes": 983,
+      "sha256": "fb22b80ae371053c7bae1a0685aafb4c684f96b09f93ccf8d761bd13984b76d3"
+    },
+    {
+      "path": "tests/test_ocr_advisor.py",
+      "bytes": 3674,
+      "sha256": "45f9f54c2d32b06b723b5fdd3b9f4f23f82ccb20591ccf3d10c9cb4d115439ec"
+    },
+    {
+      "path": "tests/test_ocr_execution_state.py",
+      "bytes": 2965,
+      "sha256": "4ef070cb07aeefecb9b3d7645be10775b9796d1ff8f8588daed39b2835955941"
+    },
+    {
+      "path": "tests/test_ocr_gui_gating.py",
+      "bytes": 715,
+      "sha256": "5c1139cfa1a57069710b716a26bb9a8e88f383a6180474e1bbb714536502a5d2"
+    },
+    {
+      "path": "tests/test_ocr_page_resume_v250.py",
+      "bytes": 5116,
+      "sha256": "0968b1e7c7012f67ffcbf09b4e1bebe90d201e5c78a1b653e5589517145111aa"
+    },
+    {
+      "path": "tests/test_ocr_provider_contract_v250.py",
+      "bytes": 3102,
+      "sha256": "188468f61cc125efbdf3041a9ce935beeabf05f8134c7c851677e8ed58b54ba8"
+    },
+    {
+      "path": "tests/test_ocr_workflow_v251.py",
+      "bytes": 5171,
+      "sha256": "73dbf04d7767e1f2ae28cdcd180fe50177869befc302661a314116ed0f2ce9f3"
+    },
+    {
+      "path": "tests/test_operation_lock.py",
+      "bytes": 735,
+      "sha256": "c9fa878768a83f28c74386ae9b89aa78f8371ce1e0924765c14adff5b01ba473"
+    },
+    {
+      "path": "tests/test_package_data.py",
+      "bytes": 560,
+      "sha256": "50a9aa503b928cb2a9dea859e325ff825597fc942e9a41d41dfe6d7a94b62873"
+    },
+    {
+      "path": "tests/test_pdf_diagnose.py",
+      "bytes": 2308,
+      "sha256": "17096a0f5593ecfff07143720c10aaaadf8979ca5a6e1d56ae8b6c568f5025be"
+    },
+    {
+      "path": "tests/test_portable_contract.py",
+      "bytes": 5037,
+      "sha256": "2150feabce37cf6aeddfd70ae85f3f2a4797d41e7e9db19e54ec021d51b035ca"
+    },
+    {
+      "path": "tests/test_power.py",
+      "bytes": 976,
+      "sha256": "f89d918f7b4b81af0918f4a6d40f6152560d0a20cff2dc7fc156e9735ba8e2f4"
+    },
+    {
+      "path": "tests/test_progress_events.py",
+      "bytes": 1614,
+      "sha256": "4b60c49fe49f24a9abe2c0980173ed705d83365d655d0ab68ff46609db42904f"
+    },
+    {
+      "path": "tests/test_provider_registry.py",
+      "bytes": 2484,
+      "sha256": "9ae4e9bec3d6c5eb68ec92d8a9067286b5f95893d33a752bd0833d4f02712073"
+    },
+    {
+      "path": "tests/test_quiet_export.py",
+      "bytes": 1023,
+      "sha256": "a12e0409bb33c6464e88a8afd630f3279ac4f08b38d89f13a8454ad3df5c5c54"
+    },
+    {
+      "path": "tests/test_recovery.py",
+      "bytes": 3431,
+      "sha256": "acb8e080fadf673a197ee3012d842f408b96eb9b2309cc9fbe604e740c1e7792"
+    },
+    {
+      "path": "tests/test_responsive_gui.py",
+      "bytes": 2296,
+      "sha256": "f159d8f7af1fc22659877375d6d3f5bd758e3447fd2d661e0bfa6405ff3b26e5"
+    },
+    {
+      "path": "tests/test_resume_export_path.py",
+      "bytes": 934,
+      "sha256": "fff16310aca3f2717847f4f004e216334f9a57498f740e01b9286e94394a55bc"
+    },
+    {
+      "path": "tests/test_resume_speech_controls.py",
+      "bytes": 5141,
+      "sha256": "63435ebe94739df05bc4c91102ea58e225ca5443edc9898fff836466155ee79e"
+    },
+    {
+      "path": "tests/test_runtime_visibility.py",
+      "bytes": 808,
+      "sha256": "2553823d449adf8315a64ae9ef25e95b364783858ba032b2be0d398a244f7ebe"
+    },
+    {
+      "path": "tests/test_safe_zip.py",
+      "bytes": 545,
+      "sha256": "51fcb69f6ca23e16ea3f90bcf34de8258c416f41e3caa0608340f1385997b3b9"
+    },
+    {
+      "path": "tests/test_safety_gates.py",
+      "bytes": 6028,
+      "sha256": "cda89e60c8bafedaaae89907517f96f3b9d21ac957cac8855881437d050c841e"
+    },
+    {
+      "path": "tests/test_stale_lock.py",
+      "bytes": 1745,
+      "sha256": "ea8ce745d3ccda505a746ac0e0e6350a896b9ad712f467017c19ed27ab8f1120"
+    },
+    {
+      "path": "tests/test_subprocess_utils.py",
+      "bytes": 3152,
+      "sha256": "6b1a5e0027405d6735bdfb53079f6cdb0b2140f18e73b647ada2cc4b57a4ec10"
+    },
+    {
+      "path": "tests/test_text_processing.py",
+      "bytes": 1625,
+      "sha256": "78f11780f8b20c5f247cb29151e4caa71a58575720c2f0743fbc42bb86d0683b"
+    },
+    {
+      "path": "tests/test_v230_contract.py",
+      "bytes": 1122,
+      "sha256": "dca9a1eddd4f452e2cce203774fdfb4c0215f6b0e5fe5a6220aec2df71b50db2"
+    },
+    {
+      "path": "tests/test_v231_contract.py",
+      "bytes": 840,
+      "sha256": "9a62cd4e2c407fdbd96af2631b34b56b2791131f14e64775edf525e96920219f"
+    },
+    {
+      "path": "tests/test_v232_contract.py",
+      "bytes": 899,
+      "sha256": "32465dcc6fa6a9b6df292a85b6de1158dacb576cdc6e4c0b53d35ad4e15d59bb"
+    },
+    {
+      "path": "tests/test_v233_contract.py",
+      "bytes": 1680,
+      "sha256": "5ff38b6067998246c83f62cb1b05187eee87f86d715821748d135ff0fc530e11"
+    },
+    {
+      "path": "tests/test_v240_contract.py",
+      "bytes": 2744,
+      "sha256": "7548d9f7e522a79d7cea4d475cfe2affc5613f4a2781b795896bbd2e01ebb4c9"
+    },
+    {
+      "path": "tests/test_v241_contract.py",
+      "bytes": 2434,
+      "sha256": "bc4d9ed062a84af8f01672b1793e3eecef7bfdc536434389432b9954e9d27aff"
+    },
+    {
+      "path": "tests/test_v250_contract.py",
+      "bytes": 2910,
+      "sha256": "85f51ced7d2cbfddaee4238dc0b689ce99d6bf9aae8dc1bb364a067754bc3408"
+    },
+    {
+      "path": "tests/test_v251_local_ocr_workflow_contract.py",
+      "bytes": 1442,
+      "sha256": "af117c04649f4f86d832bffd309f9c1859caf19d934a974ce40e07e015fdedf9"
+    },
+    {
+      "path": "tests/test_v290_local_workflow_contract.py",
+      "bytes": 2588,
+      "sha256": "a11555e07d9c64520e652b0a23fb7d85881d6e4312683cb06fbbe4d2e1ba5641"
+    },
+    {
+      "path": "tests/test_v291_local_owner_gui_contract.py",
+      "bytes": 3299,
+      "sha256": "c150b556059b3e2f74758b4219370a26e351009200900eafc0bac8864962dc3d"
+    },
+    {
+      "path": "tests/test_v292_local_production_closure.py",
+      "bytes": 2345,
+      "sha256": "32bc37368e76ed744d1b91d8b0fb30d6e501c903563b0f9b4184c443a56639ec"
+    },
+    {
+      "path": "tests/test_v292_offline_visibility_closure.py",
+      "bytes": 2391,
+      "sha256": "6e63fe1dd9219b540cebabcafa9010941c2806448be463fc8376003f69a6cd8a"
+    },
+    {
+      "path": "tests/test_v292_regression_closure_finalizer.py",
+      "bytes": 1648,
+      "sha256": "76113b15c2740b768449e3b8dd3145d4c35a6a2d17b7df28d69d63ef165fd920"
+    },
+    {
+      "path": "tests/test_v295_dependency_aware_collect_all.py",
+      "bytes": 2620,
+      "sha256": "dc482c62d6d54a31c366309f68361ddb19cba828c1a6b22058e5924882f11a42"
+    },
+    {
+      "path": "tests/test_v295_pre_3_0_closure.py",
+      "bytes": 2259,
+      "sha256": "ffc6d9d59fd939279641345cdffbf2710882f6cf80fe936e575b8b387699252a"
+    },
+    {
+      "path": "tests/test_v295_regression_closure_corrected.py",
+      "bytes": 2863,
+      "sha256": "ad991eaece1da8117fbc736515970c5c2a7d552d3d0a0f61d6c060b066912713"
+    },
+    {
+      "path": "tests/test_v295_voice_sample_gui_runtime_closure.py",
+      "bytes": 2109,
+      "sha256": "3cb0de1ed966df82dc547468af49182f6b3bb748160e4c8908b183a0a5b7dbe6"
+    },
+    {
+      "path": "tests/test_v2962_v16_residual_fixture_domain.py",
+      "bytes": 1075,
+      "sha256": "d2d15e0911c04c2a3fc5d020b0207263a8fac1ad259f2c31025c19d08e22a934"
+    },
+    {
+      "path": "tests/test_v296_html_approved_ui_and_locale_samples.py",
+      "bytes": 1120,
+      "sha256": "c441a5bc8aec816b080e0265aa4725b53b2b6aa6618054547d3adfc208e70fb3"
+    },
+    {
+      "path": "tests/test_v296_owner_ui_shell_contract.py",
+      "bytes": 1576,
+      "sha256": "de3038a3bf71bbcb6337451e12c16564e73b9029baf3860e8ef905d189befd6f"
+    },
+    {
+      "path": "tests/test_v2971_v18_residual_closure.py",
+      "bytes": 1460,
+      "sha256": "7c211bcc8450ac84e831aa5153917c50d4aaffd2510077ed13de240a53272ab3"
+    },
+    {
+      "path": "tests/test_v2972_v19_meta_fixture_false_positive_closure.py",
+      "bytes": 1461,
+      "sha256": "defa565c013286ed2d22a6b65e3a34a73b56946a6456ead53925dca662a5aa4f"
+    },
+    {
+      "path": "tests/test_v297_windows_default_ux_state_machine.py",
+      "bytes": 1898,
+      "sha256": "4f858c7cebb16d59e19a248d17748fe810e305f319420ebd080b799448dbce32"
+    },
+    {
+      "path": "tests/test_v2981_v21_residual_ui_contract_alignment.py",
+      "bytes": 1052,
+      "sha256": "e77fc88d3ddd851d9c0e2e40ac0f45500071ff70b65ec4604827e10fc2b79be9"
+    },
+    {
+      "path": "tests/test_v2982_v22_single_canonical_fixture_writer.py",
+      "bytes": 2122,
+      "sha256": "fd2214e7b2a4b9d6f95ddc89a14fde4d9c0bb6ed9fcc755825d79a9091e14460"
+    },
+    {
+      "path": "tests/test_v298_v20_workflow_status_reload_contract.py",
+      "bytes": 2238,
+      "sha256": "7a5f86c7fbc72b6090df3ce22793c7c6115dd09614a67e0a43bd34caa21826f5"
+    },
+    {
+      "path": "tests/test_v300_v23_release_contract.py",
+      "bytes": 2104,
+      "sha256": "6eaf6be4fbb243d9948e6b1046a1655b1f4a6ac9e2664ba3235dbd691bbf5a4d"
+    },
+    {
+      "path": "tests/test_v300_v24_telemetry_backpressure_closure.py",
+      "bytes": 1909,
+      "sha256": "c9a063d6d15bbe12d90684a4ccf227db31f43c1a153927217882856512f6403a"
+    },
+    {
+      "path": "tests/test_v300_v25_offline_visibility_fixture_jurisdiction_closure.py",
+      "bytes": 2356,
+      "sha256": "a2b97a9a0c24cf51bbae3aa7d305f04704d1225a1cd52bccdf234a2812991b2e"
+    },
+    {
+      "path": "tests/test_v300_v26_runtime_cancellation_ocr_progress_save_job.py",
+      "bytes": 3332,
+      "sha256": "f49074c5af095db521130866120c6cd66727aaf9bf6a60c07f1633ad4d97c557"
+    },
+    {
+      "path": "tests/test_v300_v27_single_canonical_runtime_writer_closure.py",
+      "bytes": 1521,
+      "sha256": "36ddd811dbd1c951c356a59f9294e0b814b343ac180a56e15af37abefe15b671"
+    },
+    {
+      "path": "tests/test_v300_v28_safe_reload_ui_text_prepare_watchdog_dialog_closure.py",
+      "bytes": 2566,
+      "sha256": "8948f885e67d70b3fc0767ea2b96577fc2afabd92907bfdad3da71ab68ad4d98"
+    },
+    {
+      "path": "tests/test_v300_v30_cleanup_alignment_audio_status_anti_jitter_closure.py",
+      "bytes": 1804,
+      "sha256": "a52f2384da25dcc5e83b9bd467c4f5080d9e8841e17d48577ee51d55f50e024b"
+    },
+    {
+      "path": "tests/test_v300_v31_remove_save_single_authority_audio_status_closure.py",
+      "bytes": 2127,
+      "sha256": "58423c2e7be0a6865ea7e881511ab10edec1fda88493fe8b3c3cd504c2db45b0"
+    },
+    {
+      "path": "tests/test_v300_v32_full_graph_idempotence_lightweight_telemetry_closure.py",
+      "bytes": 2180,
+      "sha256": "159f59b15fcb7242ea1acd66f07e6ed0e3f56330a9bf727df50f6b5860bac1fc"
+    },
+    {
+      "path": "tests/test_voices.py",
+      "bytes": 986,
+      "sha256": "0e89227fb09b7e214be6df81c0f7c04d947c4c43efd9f233a058917e46fb2ed2"
+    },
+    {
+      "path": "tests/test_windows_pdf_encoding.py",
+      "bytes": 2762,
+      "sha256": "a3e0508915027f4d7c8a12b1a31bebaf3469b09c63eb752dfae61a0adf03b2f1"
+    },
+    {
+      "path": "tests/test_workflow_completion_v290.py",
+      "bytes": 3220,
+      "sha256": "5587533389310d3b64739cdc333ec9b933af535cc02cfc98b58762dd7579a04e"
+    },
+    {
+      "path": "tests/test_workflow_state.py",
+      "bytes": 2505,
+      "sha256": "59ee796701b628700828519d69fc5a0ce8a0eb1457630624f2c5f501f82efa76"
+    },
+    {
+      "path": "tools/kokoro_worker.py",
+      "bytes": 1537,
+      "sha256": "b96b596dcd290e0e212cddba598733bfb67874bd3a3e292679c47bf4a19c9c8b"
+    },
+    {
+      "path": "tools/setup_local_ocr_foundation.py",
+      "bytes": 130,
+      "sha256": "aea189a492d8f624cafa1d0c9e8f43f6fdcda91ebdb494dc1a6ba452d982379e"
+    },
+    {
+      "path": "tools/setup_local_tts_foundation.py",
+      "bytes": 19487,
+      "sha256": "e5134d2d85186ad86c4a6178fbf0fbef7b8a5383944be79a5fc3b8f84d0a230f"
+    }
+  ]
+}

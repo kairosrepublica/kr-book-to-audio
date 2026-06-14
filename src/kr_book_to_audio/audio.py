@@ -166,17 +166,33 @@ def validate_mp3(path: Path, *, ffprobe: str = 'ffprobe') -> dict:
     return {'bytes': path.stat().st_size, 'duration_seconds': duration, 'sha256': sha256_file(path)}
 
 
+def _cleanup_old_audition_samples(output_dir: Path, *, keep: int = 12) -> None:
+    candidates = sorted(
+        (path for path in Path(output_dir).glob('audition-*.mp3') if path.is_file()),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    for old in candidates[keep:]:
+        try:
+            old.unlink()
+        except OSError:
+            pass
+
+
 def audition_sample(*, voice: str, rate: str = '+0%', pitch: str = '+0Hz', volume: str = '+0%', provider_id: str = 'edge-tts', output_dir: Path | None = None, validator: Callable[[Path], dict] = validate_mp3) -> Path:
     output_dir = Path(output_dir or tempfile.gettempdir())
     output_dir.mkdir(parents=True, exist_ok=True)
     safe_voice = ''.join(char for char in voice if char.isalnum() or char in '-_')
-    final = output_dir / f'audition-{safe_voice}.mp3'
+    signature = audio_signature(provider_id=provider_id, voice=voice, rate=rate, pitch=pitch, volume=volume)[:12]
+    unique = f'{time.time_ns()}'
+    final = output_dir / f'audition-{safe_voice}-{signature}-{unique}.mp3'
     partial = unique_partial_path(final, before_suffix=True)
     cleanup_stale_partials(final)
     sample = '这是语音试听。价值投资的核心，是以合理的价格买入优秀的公司，并长期持有。'
     get_tts_provider(provider_id).synthesize(sample, partial, voice=voice, rate=rate, pitch=pitch, volume=volume)
     validator(partial)
     replace_with_retry(partial, final)
+    _cleanup_old_audition_samples(output_dir)
     return final
 
 
