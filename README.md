@@ -1,35 +1,97 @@
 # KR Book To Audio
 
 **Possibly the world's best book-to-audio conversion software.**<br>
-**可能是全世界最好用的 Book-to-Audio 轉換軟體。**
+**可能是全世界最好用的 Book-to-Audio 转换软件。**
 
-Built by Kent Reis from Constantinople with love. AD May 20, 2026
+Built by Kent Reis from Constantinople with love.
 
 Copyright © Kent Reis & Kairos República
 
-KR Book To Audio converts text-layer PDF, EPUB, MOBI or PalmDOC-compatible AZW or PRC, DOCX, TXT and Markdown sources into independently recoverable MP3 parts and an optional merged MP3 audiobook.
+KR Book To Audio is a Windows-first desktop application for turning real books, PDFs, OCR text and long-form documents into clean, resumable audiobook projects. It is built for long jobs, Chinese/English workflows, unstable providers, interrupted runs and human review before full synthesis.
 
-## Latest interface — KR Book To Audio 3.0 UI Fix V2
+## Istanbul Release 3.0
 
-The current GitHub checkpoint is **KR Book To Audio 3.0 UI Fix V2**, based on the V32 local acceptance source line and published on 2026-06-14.
+**Istanbul Release 3.0** is the current public release line.
 
-![KR Book To Audio 3.0 UI Fix V2 latest GUI](docs/images/kr_book_to_audio_3_0_ui_status_runtime_20260614.png)
+![KR Book To Audio — Istanbul Release 3.0](docs/images/kr_book_to_audio_3_0_ui_status_runtime_20260614.png)
 
-This checkpoint publishes the current 3.0 UI/status payload, including smoother whole-book progress, diagnostic-log presentation, current status/progress surface updates, source/test updates, release notes, dev-history receipts and the portable Windows package.
+This release consolidates the 3.0 development sequence into a public checkpoint: clearer workflow stages, smoother progress reporting, visible part-level synthesis status, cleaner diagnostic logs, portable Windows distribution and a stronger recovery-first operating model.
 
-## Published artifacts
+## Features
 
-- Release notes: `docs/RELEASE_NOTES_KR_BOOK_TO_AUDIO_3_0_UI_FIX_V2_20260614.md`
+- Windows desktop GUI for long-form book-to-audio conversion.
+- Text-layer PDF, EPUB, MOBI, PalmDOC-compatible AZW/PRC, DOCX, TXT and Markdown intake.
+- OCR workflow support for hard PDFs and image-only sources.
+- Human review checkpoint before full audiobook synthesis.
+- Voice selection, language-matched voice samples, rate and volume controls.
+- First-part preview before synthesizing the entire book.
+- Recoverable MP3 part generation and optional merged audiobook output.
+- Durable job state, resume support and diagnostic receipts for interrupted runs.
+- Portable Windows ZIP release artifact.
+
+## Core functions
+
+### 1. Book intake and source analysis
+
+Select the book source, working root and export root, then analyze whether the source can be read directly or needs OCR. The application keeps OCR decisions visible instead of hiding them behind a black-box conversion.
+
+### 2. OCR workflow for hard PDFs
+
+Detect image-only or weak-text PDFs, preview OCR samples before committing to a full OCR run, and preserve receipts for long or interrupted OCR work.
+
+### 3. Text preparation and review
+
+Prepare extracted/OCR text, run cleanup analysis, open the cleaned text for review and require approval before full audiobook synthesis.
+
+### 4. Voice and speech controls
+
+Choose language and voice, preview samples in the matching language, adjust rate and volume, and approve Part 1 before producing the whole book.
+
+### 5. Resumable audiobook synthesis
+
+Synthesize one recoverable MP3 part at a time, track whole-book progress and current-part status, and resume interrupted work instead of starting over.
+
+### 6. Diagnostics and release evidence
+
+Keep logs, status, receipts, source/test updates and release artifacts visible enough to debug real failures instead of relying on unverifiable success claims.
+
+## Why this exists
+
+Most text-to-speech tools are acceptable for short snippets. Real books create different problems: broken OCR, long runtimes, provider stalls, partial failures, bad text cleanup, confusing progress and no safe recovery after interruption.
+
+KR Book To Audio is built around those real-book problems. It favors explicit workflow states, recoverable parts, review checkpoints, diagnostics and visible progress over a one-button black box.
+
+## Release artifacts
+
+- Release notes: `docs/RELEASE_NOTES_ISTANBUL_RELEASE_3_0.md`
 - Latest screenshot: `docs/images/kr_book_to_audio_3_0_ui_status_runtime_20260614.png`
-- Portable Windows ZIP: `release_artifacts/20260614_114506_KR_Book_To_Audio_V32_UI_FIX_V2_Portable_Windows_x64.zip`
-- Portable ZIP SHA-256: `release_artifacts/20260614_114506_KR_Book_To_Audio_V32_UI_FIX_V2_Portable_Windows_x64.zip.sha256.txt`
-- Publication receipt: `docs/dev-history/20260614_KR_BOOK_TO_AUDIO_UI_FIX_V2_PUBLICATION_RECEIPT.json`
-- AI co-coder handoff: `docs/dev-history/AI_COCODER_HANDOFF_KR_BOOK_TO_AUDIO_UI_FIX_V2.md`
+- Portable Windows ZIP: `release_artifacts/KR_Book_To_Audio_Istanbul_Release_3_0_Portable_Windows_x64.zip`
+- Portable ZIP SHA-256: `release_artifacts/KR_Book_To_Audio_Istanbul_Release_3_0_Portable_Windows_x64.zip.sha256.txt`
+- Development chronology: `docs/dev-history/ISTANBUL_RELEASE_3_0_DEVELOPMENT_CHRONOLOGY.md`
 
-## Current scope
+## Iteration history
 
-The 3.0 UI Fix V2 checkpoint focuses on the user-visible 3.0 status/progress and diagnostic-log surface. It preserves the existing OCR and TTS architecture while publishing the source, tests, docs, screenshot and portable package that belong to this checkpoint.
+| Public release line | Focus |
+|---|---|
+| Istanbul Release 1.x | Early portable book-to-audio foundation, provider wiring and release packaging. |
+| Istanbul Release 2.0 | More complete desktop workflow and public GitHub presentation. |
+| Istanbul Release 2.4.x | GUI responsiveness, provider telemetry handling, TTS reliability and flat export behavior. |
+| Istanbul Release 2.5.x | Governed local OCR foundation and offline OCR resource architecture. |
+| Istanbul Release 3.0 | Consolidated local acceptance line with improved workflow presentation, progress/status visibility, diagnostic logs, source/test publication and portable Windows artifact. |
 
-## Historical release notes
+Internal engineering checkpoints were used during development. They are not public product names. The public-facing version for the current checkpoint is **Istanbul Release 3.0**.
 
-Historical Istanbul Release notes and earlier interface screenshots are preserved under `docs/` and `docs/images/`.
+## Development principles
+
+- Real-book workflow over toy snippets.
+- User-visible state over hidden background work.
+- Recoverable parts over all-or-nothing synthesis.
+- Explicit OCR and text-review gates over silent conversion.
+- Portable local execution over fragile machine-specific installs.
+- Diagnostics and receipts over unverifiable success claims.
+
+## Current status
+
+Istanbul Release 3.0 is a published public checkpoint with source, tests, screenshot, release notes and a portable Windows release artifact.
+
+Historical release notes and earlier screenshots remain under `docs/` and `docs/images/`.
