@@ -1,5 +1,22 @@
 # Changelog
 
+## KR B2A Pronunciation Lexicon - Istanbul Release 1.0 - 2026-06-15
+
+- Published the pronunciation lexicon as an important parallel release for the
+  KR Book To Audio 3.0 Istanbul line.
+- Added an encrypted Chinese-English lexicon archive and a public SHA-256
+  integrity receipt.
+- Added 413 curated Mandarin contextual phrase overrides, 66 English heteronym
+  groups, number/date/unit normalization rules, and project-level override
+  guidance.
+- Bundled 125,008 CC-CEDICT-derived pronunciation records and 135,166 CMUdict
+  pronunciation records while preserving source attribution and license
+  notices.
+- Added a public engineering record covering research evidence, architecture,
+  production steps, validation, limitations, and release controls.
+- The archive password is not published. It may be requested from
+  kr@kairosrepublica.com.
+
 ## Istanbul Release 3.0 — 2026-06-14
 
 - Published the public **Istanbul Release 3.0** checkpoint for KR Book To Audio.

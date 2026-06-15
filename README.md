@@ -17,6 +17,29 @@ KR Book To Audio is a Windows-first desktop application for turning real books, 
 
 This release consolidates the 3.0 development sequence into a public checkpoint: clearer workflow stages, smoother progress reporting, visible part-level synthesis status, cleaner diagnostic logs, portable Windows distribution and a stronger recovery-first operating model.
 
+## Parallel release: KR B2A Pronunciation Lexicon - Istanbul Release 1.0
+
+The pronunciation lexicon is an important parallel release for the KR Book To
+Audio 3.0 line. It provides a reusable Chinese-English pronunciation and text
+normalization foundation for audiobook preparation, including contextual
+Mandarin polyphones, English heteronyms, acronyms, dates, numbers, units,
+symbols, and full external pronunciation data layers.
+
+The distribution ZIP is intentionally encrypted. To request the archive
+password, email [kr@kairosrepublica.com](mailto:kr@kairosrepublica.com).
+
+- Release notes:
+  `docs/RELEASE_NOTES_KR_B2A_PRONUNCIATION_LEXICON_ISTANBUL_RELEASE_1_0.md`
+- Engineering research and production record:
+  `docs/dev-history/KR_B2A_PRONUNCIATION_LEXICON_1_0_ENGINEERING_RECORD.md`
+- Encrypted archive:
+  `release_artifacts/kr-b2a-universal-pronunciation-lexicon-istanbul-release-1.0.zip`
+- SHA-256:
+  `6AA51E22F00DE23937681E602F6800760DE1079367C8B642FE1BB237798C8FCE`
+
+The lexicon is a companion resource, not a replacement for contextual G2P,
+engine-specific pronunciation controls, or human listening review.
+
 ## Features
 
 - Windows desktop GUI for long-form book-to-audio conversion.
