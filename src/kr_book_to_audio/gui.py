@@ -43,6 +43,27 @@ PROFILE_LABELS = {
 }
 PROFILE_BY_ID = {value: key for key, value in PROFILE_LABELS.items()}
 
+PREPARE_MODE_LABELS = {
+    'Auto smart cleanup': 'auto',
+    'Minimal preserve layout': 'minimal',
+    'Aggressive OCR cleanup': 'standard',
+}
+PREPARE_MODE_BY_ID = {value: key for key, value in PREPARE_MODE_LABELS.items()}
+PREPARE_MODE_TOOLTIPS = {
+    'auto': (
+        'Default. Use this for most TXT, Markdown and DOCX books.\n'
+        'It keeps high-confidence title, subtitle and article breaks, while still cleaning broken line wraps and extra spaces.'
+    ),
+    'minimal': (
+        'Use only when the TXT has already been manually or AI-cleaned.\n'
+        'It preserves paragraph breaks and layout as much as possible, so messy ebook line breaks can pass through.'
+    ),
+    'standard': (
+        'Use for PDF/OCR/extracted text with many bad line breaks or spacing defects.\n'
+        'It performs stronger reflow cleanup and may collapse intentional title spacing.'
+    ),
+}
+
 
 BRANDING_DIR_PARTS = ('assets', 'branding')
 BRANDING_ICO = 'kr_book_to_audio.ico'
@@ -247,6 +268,13 @@ def add_help(parent: tk.Widget, text: str, **grid_options) -> ttk.Label:
     return label
 
 
+def add_triangle_help(parent: tk.Widget, text: str, **grid_options) -> ttk.Label:
+    label = ttk.Label(parent, text='▸', cursor='question_arrow')
+    label.grid(**grid_options)
+    Tooltip(label, text)
+    return label
+
+
 
 
 DEFAULT_WINDOW_WIDTH = 1200
@@ -348,7 +376,7 @@ def visible_window_height_px(root: tk.Misc) -> int:
 class App:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title('KR Book To Audio')
+        self.root.title('KR Book To Audio 3.2')
         apply_window_icon(self.root)
         cfg = load_config()
         geometry, self.layout_mode = compute_window_geometry(self.root.winfo_screenwidth(), self.root.winfo_screenheight(), cfg.get('window_geometry_v231'))
@@ -400,6 +428,10 @@ class App:
         self.export_root = tk.StringVar(value=cfg.get('export_root', str(default_export_root())))
         self.dictionary = tk.StringVar(value=cfg.get('dictionary', ''))
         self.profile = tk.StringVar(value=PROFILE_BY_ID.get(str(cfg.get('processing_profile', DEFAULT_PROCESSING_PROFILE)), 'Auto detect · recommended'))
+        configured_prepare_mode = str(cfg.get('prepare_layout_mode', 'auto'))
+        if configured_prepare_mode not in PREPARE_MODE_BY_ID:
+            configured_prepare_mode = 'auto'
+        self.prepare_layout_mode = tk.StringVar(value=configured_prepare_mode)
         specs = enabled_tts_specs()
         self.tts_engine_labels = {spec.label: spec.provider_id for spec in specs}
         configured_tts_engine = str(cfg.get('tts_engine', 'edge-tts'))
@@ -638,8 +670,14 @@ class App:
         self.action_buttons.extend([self.ocr_install_button,self.ocr_resource_button]); ocr.columnconfigure(0,weight=1); ocr.columnconfigure(1,weight=1)
 
         _, text_process = card(workflow, 'Text process', row=0, column=1, padx=4)
-        self._workflow_button(text_process, 'prepare', 'Prepare text', self.prepare, row=0, column=0)
-        cleanup = ttk.Frame(text_process); cleanup.grid(row=1,column=0,columnspan=2,sticky='ew',pady=(6,3)); cleanup.columnconfigure(0,weight=1)
+        prepare_modes = ttk.Frame(text_process); prepare_modes.grid(row=0, column=0, columnspan=2, sticky='ew', pady=(0, 4)); prepare_modes.columnconfigure(1, weight=1)
+        ttk.Label(prepare_modes, text='Prepare mode:').grid(row=0, column=0, columnspan=3, sticky='w', pady=(0, 2))
+        for idx, (label, mode_id) in enumerate(PREPARE_MODE_LABELS.items(), start=1):
+            rb = ttk.Radiobutton(prepare_modes, text=label, variable=self.prepare_layout_mode, value=mode_id)
+            rb.grid(row=idx, column=0, sticky='w', pady=1)
+            add_triangle_help(prepare_modes, PREPARE_MODE_TOOLTIPS[mode_id], row=idx, column=1, sticky='w', padx=(4, 0), pady=1)
+        self._workflow_button(text_process, 'prepare', 'Prepare text', self.prepare, row=1, column=0)
+        cleanup = ttk.Frame(text_process); cleanup.grid(row=2,column=0,columnspan=2,sticky='ew',pady=(6,3)); cleanup.columnconfigure(0,weight=1)
         self.cleanup_junk = ttk.Label(cleanup, text='Repeated headers and junk: Not analyzed'); self.cleanup_junk.grid(row=0,column=0,sticky='w',pady=2)
         self.cleanup_junk_button = button(cleanup, 'Apply cleanup', lambda: self.apply_cleanup('repeated-headers-and-junk')); self.cleanup_junk_button.grid(row=0,column=1,sticky='e',pady=2)
         self.cleanup_datetime = ttk.Label(cleanup, text='Metadata-like date/time tags: Not analyzed'); self.cleanup_datetime.grid(row=1,column=0,sticky='w',pady=2)
@@ -650,8 +688,8 @@ class App:
         self.workflow_buttons['cleanup_all'] = self.cleanup_all_button
         self.workflow_base_labels['cleanup_all'] = 'Apply all recommended cleanup'
         self.action_buttons.append(self.cleanup_all_button)
-        self._workflow_button(text_process, 'open_cleaned', 'Open cleaned text', self.open_cleaned_text_and_advance, row=3, column=0)
-        self._workflow_button(text_process, 'approve_text', 'Approve reviewed text', self.approve_proofread, row=3, column=1)
+        self._workflow_button(text_process, 'open_cleaned', 'Open cleaned text', self.open_cleaned_text_and_advance, row=4, column=0)
+        self._workflow_button(text_process, 'approve_text', 'Approve reviewed text', self.approve_proofread, row=4, column=1)
         text_process.columnconfigure(0,weight=1); text_process.columnconfigure(1,weight=1)
 
         _, audio = card(workflow, 'Audio process', row=0, column=2, padx=(4, 0))
@@ -761,6 +799,10 @@ class App:
 
     def _profile_id(self) -> str:
         return PROFILE_LABELS.get(self.profile.get(), DEFAULT_PROCESSING_PROFILE)
+
+    def _prepare_layout_mode(self) -> str:
+        mode = self.prepare_layout_mode.get() if hasattr(self, 'prepare_layout_mode') else 'auto'
+        return mode if mode in PREPARE_MODE_BY_ID else 'auto'
 
 
     def _current_speech_controls(self) -> dict[str, str]:
@@ -890,7 +932,7 @@ class App:
         return Path(self.dictionary.get()) if self.dictionary.get().strip() else None
 
     def _save_runtime_cfg(self) -> None:
-        cfg = load_config(); cfg.update({'dictionary': self.dictionary.get(), 'tts_engine': self._tts_engine_id(), 'voice': self.voice.get(), 'rate': self.rate.get(), 'pitch': self.pitch.get(), 'volume': self.volume.get(), 'processing_profile': self._profile_id(), 'show_all_voices': self.show_all_voices.get(), 'keep_awake': self.keep_awake.get()}); save_config(cfg)
+        cfg = load_config(); cfg.update({'dictionary': self.dictionary.get(), 'tts_engine': self._tts_engine_id(), 'voice': self.voice.get(), 'rate': self.rate.get(), 'pitch': self.pitch.get(), 'volume': self.volume.get(), 'processing_profile': self._profile_id(), 'prepare_layout_mode': self._prepare_layout_mode(), 'show_all_voices': self.show_all_voices.get(), 'keep_awake': self.keep_awake.get()}); save_config(cfg)
 
     def _job_required(self) -> JobPaths | None:
         if not self.job: messagebox.showerror('No job', 'Prepare text or resume an existing job first.')
@@ -1768,7 +1810,7 @@ class App:
             self._show_ocr_completion_dialog(path)
         self._run('Run full OCR', lambda: run_recommended_ocr(source, analysis, output_dir=work_output_dir, export_dir=export_output_dir, provider_id=provider, keep_awake=keep_awake, progress=self._cancellable_ocr_progress_event, control=self.ocr_control), done)
 
-    def prepare(self) -> None:
+    def prepare(self, layout_mode: str | None = None) -> None:
         value = self.source.get().strip()
         if not value:
             messagebox.showerror('No book', 'Select a book first.'); return
@@ -1776,6 +1818,7 @@ class App:
             messagebox.showerror('Analyze source first', 'Analyze the selected PDF before preparing text.'); return
         if self.ocr_analysis and self.ocr_analysis.status == 'required':
             messagebox.showerror('OCR required', 'This image-only PDF requires OCR first. Run the 3-page preview and then Run full OCR.'); return
+        layout_mode = layout_mode or self._prepare_layout_mode()
         self.cleaned_text_opened = False
         self._save_runtime_cfg(); self._reset_part_view()
         work_root = Path(self.work_root.get()); export_root = Path(self.export_root.get())
@@ -1783,10 +1826,10 @@ class App:
         self._prepare_watchdog_token = int(getattr(self, '_prepare_watchdog_token', 0) or 0) + 1
         token = self._prepare_watchdog_token
         self._prepare_started_at = time.monotonic()
-        self._append_prepare_trace('started', f'source={value}')
+        self._append_prepare_trace('started', f'source={value}; layout_mode={layout_mode}')
         def work():
             try:
-                self.job = prepare_job(Path(value), work_root=work_root, export_root=export_root, processing_profile=processing_profile, dictionary_path=dictionary_path)
+                self.job = prepare_job(Path(value), work_root=work_root, export_root=export_root, processing_profile=processing_profile, dictionary_path=dictionary_path, layout_mode=layout_mode)
                 result = job_status(self.job)
                 self._append_prepare_trace('completed', f'job={self.job.root}')
                 return result
@@ -1796,8 +1839,9 @@ class App:
         def done(_report: dict) -> None:
             self._append_prepare_trace('ui-completed', 'Prepare text completed and workflow state refreshed.')
             self._render_workflow_state()
-        self._run('Prepare text', work, done)
-        if str(getattr(self.busy, 'label', '') or '') == 'Prepare text':
+        label = f"Prepare text · {PREPARE_MODE_BY_ID.get(layout_mode, 'Auto smart cleanup')}"
+        self._run(label, work, done)
+        if str(getattr(self.busy, 'label', '') or '').startswith('Prepare text'):
             self.root.after(5000, lambda: self._prepare_watchdog_tick(token))
 
     def open_proofread(self) -> None:
@@ -2209,7 +2253,7 @@ class App:
         minsize = getattr(root, 'minsize', None)
         title = getattr(root, 'title', None)
         if callable(title):
-            title('KR Book To Audio 3.0')
+            title('KR Book To Audio 3.2')
         if callable(minsize):
             minsize(1480, 1260)
         target = '1580x1260'
@@ -2485,7 +2529,7 @@ class App:
     def _prepare_watchdog_tick(self, token: int) -> None:
         if token != int(getattr(self, '_prepare_watchdog_token', 0) or 0):
             return
-        if str(getattr(self.busy, 'label', '') or '') != 'Prepare text':
+        if not str(getattr(self.busy, 'label', '') or '').startswith('Prepare text'):
             return
         started = float(getattr(self, '_prepare_started_at', time.monotonic()) or time.monotonic())
         elapsed = max(0, int(time.monotonic() - started))

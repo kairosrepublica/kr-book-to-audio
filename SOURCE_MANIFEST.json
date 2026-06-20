@@ -1,8 +1,9 @@
 {
-  "release_token": "KR_Book_To_Audio_Local_Acceptance_3.0_RELEASE_V32_20260613_221853",
-  "source_root": "<KREC_PAYLOAD_CACHE_SOURCE_ROOT_REDACTED>",
-  "generated_at": "2026-06-14T06:16:30.052020+00:00",
-  "file_count": 171,
+  "release_name": "KR Book To Audio — Porto Release 3.2",
+  "release_token": "porto-release-3.2.0-source",
+  "source_root": ".",
+  "generated_at": "2026-06-20T20:10:30.476385+00:00",
+  "file_count": 179,
   "files": [
     {
       "path": ".github/workflows/ci.yml",
@@ -16,33 +17,18 @@
     },
     {
       "path": "CHANGELOG.md",
-      "bytes": 14094,
-      "sha256": "8eea9cde0dc2e03a6c79dab7388d29a1f38d4dd46b5cf06561a873cbc5660562"
+      "bytes": 16161,
+      "sha256": "0a9b8022d25bd2c3ea0661b2920ad00f1f3d99b9714ffa64f6e786ae2b77170e"
+    },
+    {
+      "path": "README.md",
+      "bytes": 7533,
+      "sha256": "a37787916355a09a1fbc114e8f621df3ace0fa499717694724f9fedab1084c9a"
     },
     {
       "path": "docs/ARCHITECTURE.md",
       "bytes": 13919,
       "sha256": "e4fc7939b9f09513bf3686919963d60a8f6373e8d01857b29a2f43694aa81ba0"
-    },
-    {
-      "path": "docs/images/kr_book_to_audio_gui_istanbul_release_2_0.png",
-      "bytes": 337698,
-      "sha256": "9bfdf800cef8f6c15600085e0d82444d4c57a832edae7048405bd5eac5a3bf45"
-    },
-    {
-      "path": "docs/images/kr_book_to_audio_gui_istanbul_release_v2_0_1.png",
-      "bytes": 523014,
-      "sha256": "33f099633b12bf859f811dde0b44f9b2bc69fb7450878abe21f8008b6949248d"
-    },
-    {
-      "path": "docs/images/kr_book_to_audio_gui_istanbul_release_v2_1_0.png",
-      "bytes": 475019,
-      "sha256": "2a4ee69849c1ed38c11844d68091c0c4bc7bfefc0e1cf8685956791a75d466bf"
-    },
-    {
-      "path": "docs/images/kr_book_to_audio_gui_istanbul_release_v2_4_1.png",
-      "bytes": 446411,
-      "sha256": "c7dfbc85c3bb0a24a1dbbc2d8d9d729f065cb80d973c961720579b2a176129b3"
     },
     {
       "path": "docs/KR_OCR_LOCAL_FOUNDATION.md",
@@ -53,6 +39,16 @@
       "path": "docs/KR_TTS_Coding_SOP.md",
       "bytes": 12441,
       "sha256": "6d0169182c00f80b1eaeddf4d29388aa0c39b0894fd5a672175502149b334c8a"
+    },
+    {
+      "path": "docs/RELEASE_NOTES_ISTANBUL_RELEASE_3_0.md",
+      "bytes": 1095,
+      "sha256": "d9ff66f87f800e95bd1153f0d9410ab85e0e361b4090af453eb433cd926235ff"
+    },
+    {
+      "path": "docs/RELEASE_NOTES_ISTANBUL_RELEASE_3_1.md",
+      "bytes": 1623,
+      "sha256": "36eec41ba27eccb550044d93824e645f8944006d6eb8d7871233630924b7d371"
     },
     {
       "path": "docs/RELEASE_NOTES_ISTANBUL_RELEASE_v1.0.0.md",
@@ -150,6 +146,46 @@
       "sha256": "17aaa51f4e0705af1d9c3101027da00ee4a88eb16aa576d73ae094283872d0e5"
     },
     {
+      "path": "docs/RELEASE_NOTES_PORTO_RELEASE_3_2.md",
+      "bytes": 3686,
+      "sha256": "762e49cb0dfbc0a022001f585eec7eaa550611ac57c5fb84a5e70f885bf8534b"
+    },
+    {
+      "path": "docs/dev-history/ISTANBUL_RELEASE_3_0_DEVELOPMENT_CHRONOLOGY.md",
+      "bytes": 1745,
+      "sha256": "af757ae02e34196763f4fd543acdaa2fd5b7e91e0238a4ea887e4f90fb1e1656"
+    },
+    {
+      "path": "docs/images/kr_book_to_audio_3_0_ui_status_runtime_20260614.png",
+      "bytes": 426385,
+      "sha256": "4acf1c86674935a77400d4ec74f813adf6e2f5280fdfc74c042d1ff5376806cb"
+    },
+    {
+      "path": "docs/images/kr_book_to_audio_gui_istanbul_release_2_0.png",
+      "bytes": 337698,
+      "sha256": "9bfdf800cef8f6c15600085e0d82444d4c57a832edae7048405bd5eac5a3bf45"
+    },
+    {
+      "path": "docs/images/kr_book_to_audio_gui_istanbul_release_v2_0_1.png",
+      "bytes": 523014,
+      "sha256": "33f099633b12bf859f811dde0b44f9b2bc69fb7450878abe21f8008b6949248d"
+    },
+    {
+      "path": "docs/images/kr_book_to_audio_gui_istanbul_release_v2_1_0.png",
+      "bytes": 475019,
+      "sha256": "2a4ee69849c1ed38c11844d68091c0c4bc7bfefc0e1cf8685956791a75d466bf"
+    },
+    {
+      "path": "docs/images/kr_book_to_audio_gui_istanbul_release_v2_4_1.png",
+      "bytes": 446411,
+      "sha256": "c7dfbc85c3bb0a24a1dbbc2d8d9d729f065cb80d973c961720579b2a176129b3"
+    },
+    {
+      "path": "docs/images/kr_book_to_audio_porto_release_3_2_20260620.png",
+      "bytes": 119468,
+      "sha256": "c42f82e2cc5deee698de43302a4bbbc7145bfe4855d99582e61d047a8f53bc08"
+    },
+    {
       "path": "packaging/KRBookToAudio.spec",
       "bytes": 1724,
       "sha256": "4849b1fab1b3b57d54cea19ac2a2b98e7e9d1592e9b75e741311478a337e9a00"
@@ -171,18 +207,13 @@
     },
     {
       "path": "pyproject.toml",
-      "bytes": 834,
-      "sha256": "622499482043965f7e8c235c5b6308daaf4a020f0bbc1aa89ad217dfd64a3312"
-    },
-    {
-      "path": "README.md",
-      "bytes": 21254,
-      "sha256": "77e78ee64e2258391f7c384e444038fd729892d7b7fee6bc0945a50affac2a42"
+      "bytes": 803,
+      "sha256": "10f85f047906968a30937469c1169da0cd02199e77e7b833d374cca2af6a4af6"
     },
     {
       "path": "src/kr_book_to_audio/__init__.py",
-      "bytes": 64,
-      "sha256": "453943fa6e7428edb17f364c83b5bbb613b27a2c28582746c893f040898ebe33"
+      "bytes": 61,
+      "sha256": "a46afec87b779d971c10f729e2bb520b33cbdd89bc2b7d87b4ab7de044e3ae28"
     },
     {
       "path": "src/kr_book_to_audio/assets/branding/ba_round_corner_small_square_fill-800.png",
@@ -206,13 +237,13 @@
     },
     {
       "path": "src/kr_book_to_audio/cli.py",
-      "bytes": 8381,
-      "sha256": "3dc58e428d337769dfb2c21246ac714e3153da423fc700830d063f7703c7331e"
+      "bytes": 8523,
+      "sha256": "65f4bc6d7256235afd5b5ae5219ac623c2d6db2c094ca2264b7b61a5a098d013"
     },
     {
       "path": "src/kr_book_to_audio/config.py",
-      "bytes": 1943,
-      "sha256": "4e6cef3b3ffaf38fb5789298bccf5e9318c58f7583ed09a1c358f72a72c36148"
+      "bytes": 1998,
+      "sha256": "d8694ed71e2b8c8252b20f8c0feff325d4139a0ce00a6a4fdb55093837139548"
     },
     {
       "path": "src/kr_book_to_audio/diagnostics.py",
@@ -246,8 +277,8 @@
     },
     {
       "path": "src/kr_book_to_audio/gui.py",
-      "bytes": 154911,
-      "sha256": "3cb5384caf9cbc6568ad759a1e5344fc0177590bab226634441e7b893ce231a2"
+      "bytes": 158123,
+      "sha256": "ad4daeb567aae3ec2b09d9df0457e9419fc46fed2e2c9841390f0331b19a783d"
     },
     {
       "path": "src/kr_book_to_audio/gui_runtime_probe.py",
@@ -281,8 +312,8 @@
     },
     {
       "path": "src/kr_book_to_audio/manifest.py",
-      "bytes": 5380,
-      "sha256": "0c2cb33b1481f6b5276325f466a875c75a713f54c679e4df96359246700f26c9"
+      "bytes": 5426,
+      "sha256": "d8377aa0c91886e1d08d8977ae4695b4f477ba15369a54b64bc62db2b11bf03f"
     },
     {
       "path": "src/kr_book_to_audio/models.py",
@@ -306,8 +337,8 @@
     },
     {
       "path": "src/kr_book_to_audio/pipeline.py",
-      "bytes": 9899,
-      "sha256": "10769cca7da8f0837ffea3bb15f8b95852ee8baf848fa14e1f9cce4edb4b25ea"
+      "bytes": 10530,
+      "sha256": "7b3e27cd3d06cfea7635939d8da3c6cd1b19bb6681b7d304947ccd54cfd2bf0f"
     },
     {
       "path": "src/kr_book_to_audio/portable.py",
@@ -341,8 +372,8 @@
     },
     {
       "path": "src/kr_book_to_audio/text_processing.py",
-      "bytes": 12184,
-      "sha256": "8307612b266c6823d185ad943e908dc41ac76718ca1a72b32630da57ddf66fa0"
+      "bytes": 22502,
+      "sha256": "757b64df23952a855eee01e2e15d5251ccd9ddc8fb195653989f4cdba9cab6a3"
     },
     {
       "path": "src/kr_book_to_audio/ui_v295.py",
@@ -646,8 +677,8 @@
     },
     {
       "path": "tests/test_text_processing.py",
-      "bytes": 1625,
-      "sha256": "78f11780f8b20c5f247cb29151e4caa71a58575720c2f0743fbc42bb86d0683b"
+      "bytes": 6590,
+      "sha256": "1994d00de358b86607a4345b6eaa210060ceac83b09e335401ead148336a776a"
     },
     {
       "path": "tests/test_v230_contract.py",
@@ -781,8 +812,8 @@
     },
     {
       "path": "tests/test_v300_v23_release_contract.py",
-      "bytes": 2104,
-      "sha256": "6eaf6be4fbb243d9948e6b1046a1655b1f4a6ac9e2664ba3235dbd691bbf5a4d"
+      "bytes": 2066,
+      "sha256": "a13cb8c109d8b2fc81d82a3a2ca1a24c9714645c0cda9badfdd2a31b71ebfc60"
     },
     {
       "path": "tests/test_v300_v24_telemetry_backpressure_closure.py",
@@ -825,6 +856,16 @@
       "sha256": "159f59b15fcb7242ea1acd66f07e6ed0e3f56330a9bf727df50f6b5860bac1fc"
     },
     {
+      "path": "tests/test_v310_prepare_mode_ui.py",
+      "bytes": 2383,
+      "sha256": "eb7b1dd08b67a70b19502f02084d8c041e1f966a62f87552c12f6438b3a96517"
+    },
+    {
+      "path": "tests/test_v320_porto_release_contract.py",
+      "bytes": 1592,
+      "sha256": "6f261239c4f885da0f7b5b9f20fed08ea5618f6d0017cd32c2e1dfa8c418696d"
+    },
+    {
       "path": "tests/test_voices.py",
       "bytes": 986,
       "sha256": "0e89227fb09b7e214be6df81c0f7c04d947c4c43efd9f233a058917e46fb2ed2"
@@ -859,6 +900,5 @@
       "bytes": 19487,
       "sha256": "e5134d2d85186ad86c4a6178fbf0fbef7b8a5383944be79a5fc3b8f84d0a230f"
     }
-  ],
-  "publication_note": "Sanitized after publication so public repository metadata does not expose Owner-local temporary paths."
+  ]
 }

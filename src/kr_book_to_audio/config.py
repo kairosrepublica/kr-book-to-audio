@@ -47,6 +47,7 @@ def _migrate_config(payload: dict) -> dict:
     migrated.pop('t2s', None)
     migrated.setdefault('tts_engine', DEFAULT_TTS_ENGINE)
     migrated.setdefault('processing_profile', DEFAULT_PROCESSING_PROFILE)
+    migrated.setdefault('prepare_layout_mode', 'auto')
     migrated.setdefault('pitch', DEFAULT_PITCH)
     migrated.setdefault('volume', DEFAULT_VOLUME)
     migrated.setdefault('show_all_voices', False)

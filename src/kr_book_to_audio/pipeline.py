@@ -36,17 +36,34 @@ def prepare_job(
     processing_profile: str = 'auto',
     dictionary_path: Path | None = None,
     chunk_chars: int = DEFAULT_CHUNK_CJK,
+    layout_mode: str = 'auto',
 ) -> JobPaths:
     source = Path(source).resolve()
     diagnosis = diagnose(source)
     if not diagnosis.get('extractable'):
         reason = diagnosis.get('reason') or 'Input is not extractable. OCR is required first.'
         raise RuntimeError(reason)
-    options = {'processing_profile': processing_profile, 'chunk_chars': chunk_chars}
+    source_format = str(diagnosis.get('format') or source.suffix.lower().lstrip('.'))
+    if layout_mode == 'auto':
+        selected_layout_mode = 'structure-aware' if source_format in {'txt', 'md', 'docx'} else 'standard'
+    else:
+        selected_layout_mode = layout_mode
+    preserve_paragraph_breaks = selected_layout_mode == 'minimal'
+    options = {
+        'processing_profile': processing_profile,
+        'chunk_chars': chunk_chars,
+        'layout_mode': selected_layout_mode,
+        'preserve_paragraph_breaks': preserve_paragraph_breaks,
+    }
     job = create_job(source, work_root=work_root, export_root=export_root, title=title, options=options)
     raw = extract(source)
     atomic_write_text(job.extracted, raw)
-    cleaned, stats = clean_text(raw, processing_profile=processing_profile)
+    cleaned, stats = clean_text(
+        raw,
+        processing_profile=processing_profile,
+        preserve_paragraph_breaks=preserve_paragraph_breaks,
+        layout_mode=selected_layout_mode,
+    )
     atomic_write_text(job.cleaned, cleaned)
     atomic_write_text(job.proofread, cleaned)
     manifest = load_manifest(job)

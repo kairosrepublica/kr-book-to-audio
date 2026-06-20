@@ -34,6 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument('source'); p.add_argument('--work-root', default=str(local_work_root())); p.add_argument('--export-root', default=str(default_export_root()))
     p.add_argument('--title'); p.add_argument('--dictionary'); p.add_argument('--chars', type=int, default=DEFAULT_CHUNK_CJK)
     p.add_argument('--profile', default=DEFAULT_PROCESSING_PROFILE, choices=['auto', 'chinese', 'english', 'mixed', 'general-prose'])
+    p.add_argument('--layout-mode', default='auto', choices=['auto', 'standard', 'structure-aware', 'minimal'])
     p = sub.add_parser('rebuild'); p.add_argument('job'); p.add_argument('--dictionary'); p.add_argument('--chars', type=int)
     p = sub.add_parser('approve-proofread'); p.add_argument('job'); p.add_argument('--dictionary'); p.add_argument('--chars', type=int)
     p = sub.add_parser('cleanup'); p.add_argument('job'); p.add_argument('kind', choices=['repeated-headers-and-junk', 'metadata-date-time-tags']); p.add_argument('--dictionary')
@@ -72,7 +73,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == 'audition':
         print(audition_sample(provider_id=args.engine, voice=args.voice, rate=args.rate, output_dir=Path(args.output_dir) if args.output_dir else None)); return 0
     if args.command == 'prepare':
-        job = prepare_job(Path(args.source), work_root=Path(args.work_root), export_root=Path(args.export_root), title=args.title, processing_profile=args.profile, dictionary_path=Path(args.dictionary) if args.dictionary else None, chunk_chars=args.chars)
+        job = prepare_job(Path(args.source), work_root=Path(args.work_root), export_root=Path(args.export_root), title=args.title, processing_profile=args.profile, dictionary_path=Path(args.dictionary) if args.dictionary else None, chunk_chars=args.chars, layout_mode=args.layout_mode)
         print(json.dumps(job_status(job), ensure_ascii=False, indent=2)); return 0
     job = _job(args.job)
     if args.command == 'rebuild':

@@ -8,7 +8,7 @@ class V300ReleaseContractTests(unittest.TestCase):
 
     def test_title_minimum_height_and_persistent_window_geometry(self):
         source = self.gui()
-        self.assertIn("title('KR Book To Audio 3.0')", source)
+        self.assertIn("title('KR Book To Audio 3.2')", source)
         self.assertIn('minsize(1480, 1260)', source)
         self.assertIn("target = '1580x1260'", source)
         self.assertIn('window_state_v3.json', source)

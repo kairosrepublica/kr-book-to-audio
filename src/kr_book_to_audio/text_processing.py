@@ -14,7 +14,7 @@ CJK_PUNCT = '，。、！？；：“”‘’（）《》【】…—·「」�
 ADJ = '[\\u3400-\\u4dbf\\u4e00-\\u9fff\\uf900-\\ufaff' + re.escape(CJK_PUNCT) + ']'
 SP_AFTER = re.compile('(?<=' + ADJ + r')[ \t]+')
 SP_BEFORE = re.compile(r'[ \t]+(?=' + ADJ + ')')
-AD_RE = re.compile(r'(?i)(https?://|www\.|微信|公众号|盗版|请支持正版|本书由.+整理|扫描版|z-library)')
+AD_RE = re.compile(r'(?i)(https?://|www\.|盗版|请支持正版|本书由.+整理|扫描版|z-library)')
 
 
 def n_cjk(text: str) -> int:
@@ -106,8 +106,175 @@ def apply_cleanup(text: str, kind: str, *, min_repeats: int = 3) -> tuple[str, d
     raise ValueError(f'Unknown cleanup kind: {kind}')
 
 
-def clean_text(raw: str, *, strip_datetime_tags: bool = False, cjk_ratio: float = 0.55, processing_profile: str = 'auto') -> tuple[str, dict]:
-    """Conservatively reflow extracted prose while removing deterministic page noise."""
+LAYOUT_MODES = {'standard', 'structure-aware', 'minimal'}
+ARTICLE_INTRO_RE = re.compile(r'^(?:以下为|本文最初|本文最早|本文首发|原文|作者按|按语)')
+ARTICLE_TITLE_RE = re.compile(r'^(?:\d{4}\s*年\s*\d{1,2}\s*月.*(?:微博|发言|摘要|合集))$')
+SECTION_MARKER_RE = re.compile(r'^(?:第\s*[一二三四五六七八九十百千万两0-9]+\s*[，、,.．]\s*[^。！？!?；;]{0,40}|[一二三四五六七八九十]+\s*[、.．]\s*[^。！？!?；;]{0,40})$')
+ORDINAL_START_RE = re.compile(r'^第\s*[一二三四五六七八九十百千万两0-9]+\s*[，、,.．]')
+ARTICLE_TERMINATOR_RE = re.compile(r'(?:未完待续|全文完|END|待续)[）)】\]]?\s*$')
+
+
+def _compact_units(text: str) -> int:
+    return text_units(text)
+
+
+def _has_sentence_punctuation(text: str) -> bool:
+    return bool(re.search(r'[。！？!?；;]', text))
+
+
+def _ends_sentence(text: str) -> bool:
+    stripped = text.rstrip()
+    return bool(stripped) and stripped[-1] in SENT_END
+
+
+def _join_extracted_lines(lines: list[str]) -> str:
+    """Join physical extraction lines inside one source block.
+
+    CJK-heavy blocks are joined without an inserted space because many PDF/OCR
+    and copied Chinese sources contain artificial glyph gaps. Latin-only blocks
+    keep a single space so English words do not collide.
+    """
+    cleaned = [line.strip() for line in lines if line.strip()]
+    if not cleaned:
+        return ''
+    combined = ''.join(cleaned)
+    compact = re.sub(r'\s', '', combined)
+    cjk = n_cjk(combined)
+    if compact and cjk / max(len(compact), 1) < 0.20:
+        return ' '.join(cleaned)
+    return combined
+
+
+def _line_blocks(lines: list[str]) -> list[str]:
+    blocks: list[str] = []
+    current: list[str] = []
+    for line in lines:
+        value = line.strip()
+        if not value:
+            if current:
+                joined = _join_extracted_lines(current).strip()
+                if joined:
+                    blocks.append(joined)
+                current = []
+            continue
+        current.append(value)
+    if current:
+        joined = _join_extracted_lines(current).strip()
+        if joined:
+            blocks.append(joined)
+    return blocks
+
+
+def is_section_heading(text: str) -> bool:
+    compact = re.sub(r'\s', '', text.strip())
+    if not compact or _compact_units(compact) > 60:
+        return False
+    return bool(SECTION_MARKER_RE.match(compact))
+
+
+def is_article_heading(text: str, *, next_text: str = '', previous_text: str = '', index: int = 0) -> bool:
+    value = text.strip()
+    compact = re.sub(r'\s', '', value)
+    if not compact or _compact_units(compact) > 90:
+        return False
+    if ORDINAL_START_RE.match(compact):
+        return False
+    if ARTICLE_INTRO_RE.match(next_text.strip()):
+        return True
+    if ARTICLE_TITLE_RE.match(compact) and not _has_sentence_punctuation(value):
+        return True
+    if ARTICLE_TERMINATOR_RE.search(previous_text.strip()) and not _has_sentence_punctuation(value):
+        return True
+    return False
+
+
+def is_structural_heading(text: str, *, next_text: str = '', previous_text: str = '', index: int = 0) -> bool:
+    return is_article_heading(text, next_text=next_text, previous_text=previous_text, index=index) or is_section_heading(text)
+
+
+def _clean_blocks_standard(blocks: list[str]) -> tuple[list[str], dict]:
+    paragraphs: list[str] = []
+    buffer = ''
+    for block in blocks:
+        value = block.strip()
+        if not value:
+            continue
+        if n_cjk(value) < 2 and len(value) < 12:
+            continue
+        buffer += value
+        if buffer and _ends_sentence(buffer):
+            paragraphs.append(buffer)
+            buffer = ''
+    if buffer:
+        paragraphs.append(buffer)
+    return paragraphs, {'layout_mode': 'standard', 'structural_breaks_preserved': 0, 'artificial_breaks_reflowed': 0}
+
+
+def _clean_blocks_minimal(blocks: list[str]) -> tuple[list[str], dict]:
+    return blocks[:], {'layout_mode': 'minimal', 'structural_breaks_preserved': len(blocks), 'artificial_breaks_reflowed': 0}
+
+
+def _clean_blocks_structure_aware(blocks: list[str]) -> tuple[list[str], dict]:
+    paragraphs: list[str] = []
+    buffer = ''
+    structural_breaks = 0
+    artificial_breaks = 0
+    for index, block in enumerate(blocks):
+        value = block.strip()
+        if not value:
+            continue
+        if n_cjk(value) < 2 and len(value) < 12:
+            continue
+        previous_text = blocks[index - 1] if index > 0 else ''
+        next_text = blocks[index + 1] if index + 1 < len(blocks) else ''
+        structural = is_structural_heading(value, next_text=next_text, previous_text=previous_text, index=index)
+        if structural:
+            if buffer:
+                paragraphs.append(buffer)
+                buffer = ''
+            paragraphs.append(value)
+            structural_breaks += 1
+            continue
+        if buffer:
+            buffer += value
+            artificial_breaks += 1
+        else:
+            buffer = value
+        if buffer and _ends_sentence(buffer):
+            paragraphs.append(buffer)
+            buffer = ''
+    if buffer:
+        paragraphs.append(buffer)
+    return paragraphs, {'layout_mode': 'structure-aware', 'structural_breaks_preserved': structural_breaks, 'artificial_breaks_reflowed': artificial_breaks}
+
+
+def _select_layout_mode(layout_mode: str | None, preserve_paragraph_breaks: bool) -> str:
+    if layout_mode in {None, 'auto'}:
+        return 'minimal' if preserve_paragraph_breaks else 'standard'
+    if layout_mode not in LAYOUT_MODES:
+        raise ValueError(f'Unknown text layout mode: {layout_mode}')
+    return layout_mode
+
+
+def clean_text(
+    raw: str,
+    *,
+    strip_datetime_tags: bool = False,
+    cjk_ratio: float = 0.55,
+    processing_profile: str = 'auto',
+    preserve_paragraph_breaks: bool = False,
+    layout_mode: str | None = None,
+) -> tuple[str, dict]:
+    """Conservatively prepare prose while separating cleaning from layout policy.
+
+    ``standard`` is the legacy aggressive reflow path for noisy PDF/OCR text.
+    ``minimal`` preserves explicit source paragraph blocks and is intended for
+    Owner-approved, already-clean TXT/MD/DOCX input.
+    ``structure-aware`` is the default for plain text-like sources: it preserves
+    high-confidence article titles and section headings, but continues to reflow
+    incomplete broken paragraphs so messy ebooks are not silently passed through.
+    """
+    selected_layout_mode = _select_layout_mode(layout_mode, preserve_paragraph_breaks)
     pages = raw.split('\f')
     leaders = Counter()
     for page in pages:
@@ -134,25 +301,14 @@ def clean_text(raw: str, *, strip_datetime_tags: bool = False, cjk_ratio: float 
                 value = strip_metadata_datetime_tags(value)
             lines.append(value)
 
-    paragraphs: list[str] = []
-    buffer = ''
-    for line in lines:
-        value = line.strip()
-        if not value:
-            if buffer and buffer[-1] in SENT_END:
-                paragraphs.append(buffer)
-                buffer = ''
-            continue
-        if n_cjk(value) < 2 and len(value) < 12:
-            continue
-        buffer += value
-        if buffer and buffer[-1] in SENT_END:
-            paragraphs.append(buffer)
-            buffer = ''
-    if buffer:
-        paragraphs.append(buffer)
+    blocks = _line_blocks(lines)
+    if selected_layout_mode == 'minimal':
+        paragraphs, layout_stats = _clean_blocks_minimal(blocks)
+    elif selected_layout_mode == 'structure-aware':
+        paragraphs, layout_stats = _clean_blocks_structure_aware(blocks)
+    else:
+        paragraphs, layout_stats = _clean_blocks_standard(blocks)
 
-    raw_compact = re.sub(r'\s', '', raw)
     detected_profile = detect_processing_profile(raw)
     selected_profile = detected_profile if processing_profile == 'auto' else processing_profile
     chinese_mode = selected_profile in {'chinese', 'mixed'}
@@ -162,13 +318,14 @@ def clean_text(raw: str, *, strip_datetime_tags: bool = False, cjk_ratio: float 
         compact = re.sub(r'\s', '', paragraph)
         if len(compact) < 4:
             continue
-        if chinese_mode and n_cjk(paragraph) / max(len(compact), 1) < cjk_ratio:
+        if chinese_mode and selected_layout_mode == 'standard' and n_cjk(paragraph) / max(len(compact), 1) < cjk_ratio:
             continue
         if kept and kept[-1] == paragraph:
             continue
         kept.append(paragraph)
 
     body = '\n\n'.join(kept)
+    article_boundaries = detect_article_boundaries(kept)
     stats = {
         'language_mode': selected_profile,
         'detected_profile': detected_profile,
@@ -179,6 +336,12 @@ def clean_text(raw: str, *, strip_datetime_tags: bool = False, cjk_ratio: float 
         'running_headers_removed': sorted(running),
         'residual_intra_cjk_spaces': len(re.findall(r'[\u3400-\u9fff] +[\u3400-\u9fff]', body)),
         'metadata_datetime_cleanup': bool(strip_datetime_tags),
+        'preserve_paragraph_breaks': selected_layout_mode == 'minimal',
+        'layout_mode': selected_layout_mode,
+        'source_blocks': len(blocks),
+        'structural_breaks_preserved': layout_stats.get('structural_breaks_preserved', 0),
+        'artificial_breaks_reflowed': layout_stats.get('artificial_breaks_reflowed', 0),
+        'article_boundaries_detected': len(article_boundaries),
     }
     return body, stats
 
@@ -201,13 +364,19 @@ def strip_repeated_junk(text: str, *, min_repeats: int = 3, max_len: int = 50) -
     return '\n\n'.join(kept), {'removed': removed, 'kept_paragraphs': len(kept)}
 
 
-def load_dictionary(path: Path | None) -> list[dict]:
-    if path is None or not Path(path).exists():
-        return []
-    payload = json.loads(Path(path).read_text(encoding='utf-8'))
-    entries = payload.get('replacements', payload) if isinstance(payload, dict) else payload
-    if not isinstance(entries, list):
-        raise ValueError('Pronunciation dictionary must be a list or contain a replacements list.')
+DIRECT_LEXICON_SECTIONS = ('acronyms', 'abbreviations', 'units')
+LEXICON_METADATA_SECTIONS = (
+    'normalization_rules',
+    'heteronyms',
+    'phrase_pronunciations',
+    'place_names',
+    'surname_readings',
+    'neutral_tone_phrases',
+    'fallbacks',
+)
+
+
+def _normalize_replacement_entries(entries: list[dict]) -> list[dict]:
     normalized = []
     for entry in entries:
         if not isinstance(entry, dict):
@@ -219,6 +388,57 @@ def load_dictionary(path: Path | None) -> list[dict]:
             normalized.append({'find': find, 'replace': replace, 'enabled': True})
     normalized.sort(key=lambda item: (-len(item['find']), item['find']))
     return normalized
+
+
+def _load_direct_lexicon_replacements(payload: dict) -> list[dict] | None:
+    """Return safe direct substitutions from a structured pronunciation lexicon.
+
+    The app's pronunciation dictionary is a literal pre-TTS replacement list.
+    Rich lexicon sections such as IPA heteronyms or Chinese pinyin readings are
+    metadata, not safe text substitutions for Edge/native TTS, so only entries
+    that already contain source -> spoken text are imported here.
+    """
+    recognized = any(key in payload for key in (*DIRECT_LEXICON_SECTIONS, *LEXICON_METADATA_SECTIONS))
+    if not recognized:
+        return None
+
+    replacements = []
+    for section in DIRECT_LEXICON_SECTIONS:
+        items = payload.get(section, [])
+        if items is None:
+            continue
+        if not isinstance(items, list):
+            raise ValueError(f'Pronunciation lexicon section {section!r} must be a list.')
+        for item in items:
+            if not isinstance(item, dict):
+                raise ValueError(f'Each pronunciation lexicon entry in {section!r} must be an object.')
+            find = str(item.get('source', ''))
+            replace = str(item.get('spoken', ''))
+            enabled = bool(item.get('enabled', True))
+            if enabled and find:
+                replacements.append({'find': find, 'replace': replace, 'enabled': True})
+    return _normalize_replacement_entries(replacements)
+
+
+def load_dictionary(path: Path | None) -> list[dict]:
+    if path is None or not Path(path).exists():
+        return []
+    payload = json.loads(Path(path).read_text(encoding='utf-8'))
+    if isinstance(payload, list):
+        return _normalize_replacement_entries(payload)
+    if isinstance(payload, dict):
+        if 'replacements' in payload:
+            entries = payload['replacements']
+            if not isinstance(entries, list):
+                raise ValueError('Pronunciation dictionary replacements must be a list.')
+            return _normalize_replacement_entries(entries)
+        lexicon_replacements = _load_direct_lexicon_replacements(payload)
+        if lexicon_replacements is not None:
+            return lexicon_replacements
+    raise ValueError(
+        'Pronunciation dictionary must be a list, contain a replacements list, '
+        'or be a supported pronunciation lexicon with source/spoken direct entries.'
+    )
 
 
 def apply_dictionary(text: str, entries: list[dict]) -> tuple[str, list[dict]]:
@@ -271,22 +491,61 @@ def split_oversized_paragraph(paragraph: str, max_cjk: int) -> list[str]:
     return [piece for piece in pieces if piece]
 
 
-def chunk_text(text: str, *, max_cjk: int = 9000) -> list[str]:
+def detect_article_boundaries(paragraphs: list[str]) -> list[int]:
+    boundaries: list[int] = []
+    for index, paragraph in enumerate(paragraphs):
+        next_text = paragraphs[index + 1] if index + 1 < len(paragraphs) else ''
+        previous_text = paragraphs[index - 1] if index > 0 else ''
+        if is_article_heading(paragraph, next_text=next_text, previous_text=previous_text, index=index):
+            boundaries.append(index)
+    if boundaries and boundaries[0] != 0:
+        boundaries.insert(0, 0)
+    return sorted(set(boundaries))
+
+
+def _article_units(paragraphs: list[str]) -> list[str]:
+    boundaries = detect_article_boundaries(paragraphs)
+    if len(boundaries) < 2:
+        return paragraphs[:]
+    stops = boundaries[1:] + [len(paragraphs)]
+    units: list[str] = []
+    for start, stop in zip(boundaries, stops):
+        unit = '\n\n'.join(p for p in paragraphs[start:stop] if p.strip()).strip()
+        if unit:
+            units.append(unit)
+    return units
+
+
+def chunk_text(text: str, *, max_cjk: int = 9000, prefer_article_boundaries: bool = True) -> list[str]:
     if max_cjk < 100:
         raise ValueError('max_cjk must be >= 100')
     paragraphs = [p.strip() for p in text.split('\n\n') if p.strip()]
+    if prefer_article_boundaries:
+        primary_units = _article_units(paragraphs)
+    else:
+        primary_units = paragraphs[:]
+
     expanded: list[str] = []
-    for paragraph in paragraphs:
-        expanded.extend(split_oversized_paragraph(paragraph, max_cjk))
+    for unit in primary_units:
+        if text_units(unit) <= max_cjk:
+            expanded.append(unit)
+            continue
+        unit_paragraphs = [p.strip() for p in unit.split('\n\n') if p.strip()]
+        if len(unit_paragraphs) > 1:
+            for paragraph in unit_paragraphs:
+                expanded.extend(split_oversized_paragraph(paragraph, max_cjk))
+        else:
+            expanded.extend(split_oversized_paragraph(unit, max_cjk))
+
     parts: list[str] = []
     current: list[str] = []
     current_count = 0
-    for paragraph in expanded:
-        count = text_units(paragraph)
+    for unit in expanded:
+        count = text_units(unit)
         if current and current_count + count > max_cjk:
             parts.append('\n\n'.join(current))
             current, current_count = [], 0
-        current.append(paragraph)
+        current.append(unit)
         current_count += count
     if current:
         parts.append('\n\n'.join(current))

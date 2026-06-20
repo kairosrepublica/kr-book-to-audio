@@ -1,21 +1,24 @@
 # Changelog
 
-## KR B2A Pronunciation Lexicon - Istanbul Release 1.0 - 2026-06-15
+## Porto Release 3.2 — 2026-06-20
 
-- Published the pronunciation lexicon as an important parallel release for the
-  KR Book To Audio 3.0 Istanbul line.
-- Added an encrypted Chinese-English lexicon archive and a public SHA-256
-  integrity receipt.
-- Added 413 curated Mandarin contextual phrase overrides, 66 English heteronym
-  groups, number/date/unit normalization rules, and project-level override
-  guidance.
-- Bundled 125,008 CC-CEDICT-derived pronunciation records and 135,166 CMUdict
-  pronunciation records while preserving source attribution and license
-  notices.
-- Added a public engineering record covering research evidence, architecture,
-  production steps, validation, limitations, and release controls.
-- The archive password is not published. It may be requested from
-  kr@kairosrepublica.com.
+Release note: Kent Reis @ Porto, Portugal.
+
+- Promoted text-processing stabilization to the public Porto Release 3.2 line.
+- Documented the Prepare mode workflow: Auto smart cleanup, Minimal preserve layout and Aggressive OCR cleanup.
+- Kept article-aware part splitting as the default part generation strategy.
+- Retained pronunciation dictionary compatibility improvements from the 3.1 line.
+- Added the Porto Release 3.2 screenshot under `docs/images/`.
+- Corrected the desktop window title path so restored windows no longer fall back to an older visible version string.
+- Added future AI co-coder handoff documentation for continued debugging and upgrades.
+
+## Istanbul Release 3.1 — 2026-06-15
+
+- Upgraded the source package to the 3.1 line.
+- Replaced the extra minimal prepare button with a compact Prepare mode selector in the existing Text process panel.
+- Added a triangle hover-help marker beside each prepare mode so the Owner can see when to use Auto smart cleanup, Minimal preserve layout or Aggressive OCR cleanup.
+- Kept article-aware splitting active by default so parts prefer whole article boundaries before paragraph/sentence fallback.
+- Retained pronunciation dictionary compatibility and robust text layout mode fixes.
 
 ## Istanbul Release 3.0 — 2026-06-14
 

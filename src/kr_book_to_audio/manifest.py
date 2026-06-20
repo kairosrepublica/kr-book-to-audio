@@ -39,6 +39,7 @@ def ensure_manifest_defaults(payload: dict) -> dict:
         migration['ignored_legacy_options'] = sorted(existing | set(ignored))
     options.setdefault('processing_profile', 'auto')
     options.setdefault('chunk_chars', 9000)
+    options.setdefault('layout_mode', 'auto')
     audio = payload.setdefault('audio', {})
     audio.setdefault('provider_id', 'edge-tts')
     audio.setdefault('signature', None)
