@@ -4,8 +4,6 @@ Release note: **Kent Reis @ Porto, Portugal**.
 
 Porto Release 3.3 is the text-engine refactor release. It addresses the failure mode where EPUB, PDF and MOBI-family books were flattened too early into plain text and then repaired by increasingly fragile heuristics.
 
-![KR Book To Audio — Porto Release interface reference](https://raw.githubusercontent.com/kairosrepublica/kr-book-to-audio/main/docs/https://raw.githubusercontent.com/kairosrepublica/kr-book-to-audio/main/docs/images/kr_book_to_audio_porto_release_3_2_20260620.png)
-
 ## Main upgrade: DocumentBlock text engine
 
 The extraction layer now emits semantic `DocumentBlock` records before prepare-text cleanup. Blocks include headings, paragraphs, list items, captions, page numbers and footers where the source format can support them. Prepare text can then operate on structure instead of guessing all structure from a lossy plain-text string.
@@ -30,7 +28,7 @@ Earlier 3.x cleanup logic could improve one source type while damaging another b
 
 ## Public documentation link hygiene
 
-Porto Release 3.3 also corrects the prior screenshot-link failure class: public Markdown now uses a verified `docs/images/...` repository path or an absolute raw GitHub image URL instead of the broken `images/...` path that produced a 404 on the previous Porto release page.
+Porto Release 3.3 removes unverified screenshot embeds from public README and release notes. Future public screenshots must be Owner-supplied and validated by an automated link check before publication. This avoids both the earlier `images/...` 404 failure and malformed absolute raw URL construction.
 
 ## Known limits
 
