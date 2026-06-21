@@ -3,11 +3,12 @@ from datetime import datetime
 from pathlib import Path
 import shutil
 from .config import DEFAULT_CHUNK_CJK, default_export_root, local_work_root
-from .extractors import book_title, diagnose, extract
+from .document_blocks import blocks_to_raw_text
+from .extractors import book_title, diagnose, extract_blocks
 from .manifest import load_manifest, new_manifest, save_manifest
 from .models import JobPaths
 from .state import approve_proofread_state, dictionary_digest, load_required_dictionary, reset_audio_state, reset_preview_gate
-from .text_processing import analyze_cleanup, apply_cleanup, apply_dictionary, chunk_text, clean_text, text_units
+from .text_processing import analyze_cleanup, apply_cleanup, apply_dictionary, chunk_text, clean_document_blocks, text_units
 from .utils import append_job_log, atomic_write_json, atomic_write_text, clear_files, job_operation_lock, sanitize_filename, sha256_file, sha256_text
 
 
@@ -45,7 +46,7 @@ def prepare_job(
         raise RuntimeError(reason)
     source_format = str(diagnosis.get('format') or source.suffix.lower().lstrip('.'))
     if layout_mode == 'auto':
-        selected_layout_mode = 'structure-aware' if source_format in {'txt', 'md', 'docx'} else 'standard'
+        selected_layout_mode = 'structure-aware' if source_format in {'txt', 'md', 'docx', 'epub', 'pdf', 'mobi', 'azw', 'prc'} else 'standard'
     else:
         selected_layout_mode = layout_mode
     preserve_paragraph_breaks = selected_layout_mode == 'minimal'
@@ -56,10 +57,11 @@ def prepare_job(
         'preserve_paragraph_breaks': preserve_paragraph_breaks,
     }
     job = create_job(source, work_root=work_root, export_root=export_root, title=title, options=options)
-    raw = extract(source)
+    blocks = extract_blocks(source)
+    raw = blocks_to_raw_text(blocks)
     atomic_write_text(job.extracted, raw)
-    cleaned, stats = clean_text(
-        raw,
+    cleaned, stats = clean_document_blocks(
+        blocks,
         processing_profile=processing_profile,
         preserve_paragraph_breaks=preserve_paragraph_breaks,
         layout_mode=selected_layout_mode,
@@ -69,6 +71,9 @@ def prepare_job(
     manifest = load_manifest(job)
     manifest['diagnosis'] = diagnosis
     manifest['text']['clean_stats'] = stats
+    manifest['text']['block_engine'] = stats.get('engine')
+    manifest['text']['source_block_types'] = stats.get('source_block_types', {})
+    manifest['text']['source_block_sources'] = stats.get('source_block_sources', [])
     manifest['text']['processing_profile'] = stats.get('language_mode')
     manifest['cleanup']['analysis'] = analyze_cleanup(cleaned)
     save_manifest(job, manifest)

@@ -5,7 +5,7 @@ Release note: Kent Reis @ Porto, Portugal
 
 Porto Release 3.2 is the text-processing stabilization release for KR Book To Audio. It promotes the 3.1 prepare-mode work to the public release line, fixes the remaining window-title version mismatch, and documents the text cleanup modes for real ebook workflows.
 
-![KR Book To Audio — Porto Release 3.2](images/kr_book_to_audio_porto_release_3_2_20260620.png)
+![KR Book To Audio — Porto Release 3.2](https://raw.githubusercontent.com/kairosrepublica/kr-book-to-audio/main/docs/https://raw.githubusercontent.com/kairosrepublica/kr-book-to-audio/main/docs/images/kr_book_to_audio_porto_release_3_2_20260620.png)
 
 ## Main upgrade: text processing
 

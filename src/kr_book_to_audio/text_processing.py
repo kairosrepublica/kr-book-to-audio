@@ -3,6 +3,7 @@ from collections import Counter
 from pathlib import Path
 import json
 import re
+from .document_blocks import DocumentBlock
 
 CJK = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 SENT_END = set('。！？…”》）)】"!?」』.')
@@ -112,6 +113,17 @@ ARTICLE_TITLE_RE = re.compile(r'^(?:\d{4}\s*年\s*\d{1,2}\s*月.*(?:微博|发�
 SECTION_MARKER_RE = re.compile(r'^(?:第\s*[一二三四五六七八九十百千万两0-9]+\s*[，、,.．]\s*[^。！？!?；;]{0,40}|[一二三四五六七八九十]+\s*[、.．]\s*[^。！？!?；;]{0,40})$')
 ORDINAL_START_RE = re.compile(r'^第\s*[一二三四五六七八九十百千万两0-9]+\s*[，、,.．]')
 ARTICLE_TERMINATOR_RE = re.compile(r'(?:未完待续|全文完|END|待续)[）)】\]]?\s*$')
+LIST_ITEM_RE = re.compile(
+    r'^(?:'
+    r'\d{1,4}\s*[、.)．]'
+    r'|[（(]?[一二三四五六七八九十百千万两]+[）)、.．]'
+    r'|[A-Za-z]\s*[.)]'
+    r')\s*'
+)
+ENGLISH_STRUCTURAL_RE = re.compile(r'^(?:PART|Part|CHAPTER|Chapter|BOOK|Book)\b')
+PAGE_FOOTER_RE = re.compile(
+    r'(?i)(?:https?://|www\.|页码\s*[:：]?\s*\d+\s*/\s*\d+|\bpage\s+\d+\s+of\s+\d+\b|\b\d+\s*/\s*\d+\b|^\s*(?:页|码|页\s*[:：]?|[:：]+)\s*$)'
+)
 
 
 def _compact_units(text: str) -> int:
@@ -127,16 +139,37 @@ def _ends_sentence(text: str) -> bool:
     return bool(stripped) and stripped[-1] in SENT_END
 
 
+def _looks_like_source_boundary_line(text: str) -> bool:
+    value = text.strip()
+    compact = re.sub(r'\s', '', value)
+    if not compact:
+        return False
+    if PAGE_FOOTER_RE.search(value):
+        return True
+    if LIST_ITEM_RE.match(compact):
+        return True
+    if ENGLISH_STRUCTURAL_RE.match(value):
+        return True
+    if _compact_units(compact) <= 90 and not _has_sentence_punctuation(value):
+        alpha = sum(1 for ch in value if ch.isalpha())
+        if n_cjk(value) >= 2 or alpha >= 3 or compact.isdigit():
+            return True
+    return False
+
+
 def _join_extracted_lines(lines: list[str]) -> str:
     """Join physical extraction lines inside one source block.
 
-    CJK-heavy blocks are joined without an inserted space because many PDF/OCR
-    and copied Chinese sources contain artificial glyph gaps. Latin-only blocks
-    keep a single space so English words do not collide.
+    Preserve short semantic lines inside a blank-delimited block. Native PDF
+    extraction often places a title and byline in adjacent physical lines before
+    the first blank; joining those lines destroys visible structure. Longer
+    wrapped prose is still reflowed.
     """
     cleaned = [line.strip() for line in lines if line.strip()]
     if not cleaned:
         return ''
+    if len(cleaned) <= 3 and any(_looks_like_source_boundary_line(line) for line in cleaned):
+        return '\n'.join(cleaned)
     combined = ''.join(cleaned)
     compact = re.sub(r'\s', '', combined)
     cjk = n_cjk(combined)
@@ -148,34 +181,69 @@ def _join_extracted_lines(lines: list[str]) -> str:
 def _line_blocks(lines: list[str]) -> list[str]:
     blocks: list[str] = []
     current: list[str] = []
+
+    def flush() -> None:
+        nonlocal current
+        if not current:
+            return
+        joined = _join_extracted_lines(current).strip()
+        if joined:
+            for part in joined.splitlines():
+                value = part.strip()
+                if value:
+                    blocks.append(value)
+        current = []
+
     for line in lines:
         value = line.strip()
         if not value:
-            if current:
-                joined = _join_extracted_lines(current).strip()
-                if joined:
-                    blocks.append(joined)
-                current = []
+            flush()
             continue
         current.append(value)
-    if current:
-        joined = _join_extracted_lines(current).strip()
-        if joined:
-            blocks.append(joined)
+    flush()
     return blocks
 
 
-def is_section_heading(text: str) -> bool:
+def is_list_item(text: str) -> bool:
     compact = re.sub(r'\s', '', text.strip())
-    if not compact or _compact_units(compact) > 60:
+    return bool(compact and LIST_ITEM_RE.match(compact))
+
+
+def is_english_heading(text: str) -> bool:
+    value = re.sub(r'\s+', ' ', text.strip())
+    if not value or _compact_units(value) > 90 or _has_sentence_punctuation(value):
         return False
-    return bool(SECTION_MARKER_RE.match(compact))
+    if ENGLISH_STRUCTURAL_RE.match(value):
+        return True
+    letters = [ch for ch in value if ch.isalpha()]
+    if len(letters) < 3:
+        return False
+    words = re.findall(r"[A-Za-z][A-Za-z'’.-]*", value)
+    if not words or len(words) > 12:
+        return False
+    titled = sum(1 for word in words if word[:1].isupper() or word.lower() in {'and', 'or', 'of', 'the', 'a', 'an', 'to', 'in', 'on', 'for', 'with'})
+    return titled / max(len(words), 1) >= 0.70
+
+
+def is_section_heading(text: str) -> bool:
+    value = text.strip()
+    compact = re.sub(r'\s', '', value)
+    if not compact or _compact_units(compact) > 90:
+        return False
+    generic_cjk_heading = (
+        n_cjk(value) >= 2
+        and _compact_units(compact) <= 60
+        and not _has_sentence_punctuation(value)
+        and not re.search(r'[，,]', value)
+        and not re.match(r'^[这那我你他她它我们他们她们它们一个从在对由于因为但是然⽽而且所以总之]', compact)
+    )
+    return bool(SECTION_MARKER_RE.match(compact) or is_english_heading(text) or generic_cjk_heading)
 
 
 def is_article_heading(text: str, *, next_text: str = '', previous_text: str = '', index: int = 0) -> bool:
     value = text.strip()
     compact = re.sub(r'\s', '', value)
-    if not compact or _compact_units(compact) > 90:
+    if not compact or _compact_units(compact) > 120:
         return False
     if ORDINAL_START_RE.match(compact):
         return False
@@ -221,22 +289,27 @@ def _clean_blocks_structure_aware(blocks: list[str]) -> tuple[list[str], dict]:
     artificial_breaks = 0
     for index, block in enumerate(blocks):
         value = block.strip()
-        if not value:
-            continue
-        if n_cjk(value) < 2 and len(value) < 12:
+        if not value or PAGE_FOOTER_RE.search(value):
             continue
         previous_text = blocks[index - 1] if index > 0 else ''
         next_text = blocks[index + 1] if index + 1 < len(blocks) else ''
         structural = is_structural_heading(value, next_text=next_text, previous_text=previous_text, index=index)
-        if structural:
+        list_item = is_list_item(value)
+        if structural or list_item:
             if buffer:
                 paragraphs.append(buffer)
                 buffer = ''
             paragraphs.append(value)
             structural_breaks += 1
             continue
+        if buffer and buffer.rstrip().endswith(('：', ':')) and list_item:
+            paragraphs.append(buffer)
+            paragraphs.append(value)
+            buffer = ''
+            structural_breaks += 1
+            continue
         if buffer:
-            buffer += value
+            buffer += (' ' if (n_cjk(buffer + value) == 0) else '') + value
             artificial_breaks += 1
         else:
             buffer = value
@@ -255,6 +328,139 @@ def _select_layout_mode(layout_mode: str | None, preserve_paragraph_breaks: bool
         raise ValueError(f'Unknown text layout mode: {layout_mode}')
     return layout_mode
 
+
+
+
+TRUSTED_BLOCK_SOURCES = {'epub_html', 'docx'}
+
+
+def _clean_block_text(value: str, *, strip_datetime_tags: bool = False) -> str:
+    lines: list[str] = []
+    for line in value.replace('\r\n', '\n').replace('\r', '\n').split('\n'):
+        item = re.sub(r'[ \t]+', ' ', line).strip()
+        if not item or PAGE_FOOTER_RE.search(item) or re.fullmatch(r'\d{1,5}', item):
+            continue
+        if strip_datetime_tags:
+            item = strip_metadata_datetime_tags(item)
+        lines.append(item)
+    return '\n'.join(lines).strip()
+
+
+def clean_document_blocks(
+    blocks: list[DocumentBlock],
+    *,
+    strip_datetime_tags: bool = False,
+    cjk_ratio: float = 0.55,
+    processing_profile: str = 'auto',
+    preserve_paragraph_breaks: bool = False,
+    layout_mode: str | None = None,
+) -> tuple[str, dict]:
+    """Prepare semantically extracted document blocks for proofreading and TTS.
+
+    This is the Porto 3.3 text-engine path.  Format-specific extractors keep
+    headings, paragraphs, list items and page-local PDF noise separate before
+    text cleanup.  The legacy ``clean_text(raw)`` path remains for compatibility
+    and for plain text strings that have no block manifest.
+    """
+    selected_layout_mode = _select_layout_mode(layout_mode, preserve_paragraph_breaks)
+    source_types = sorted({block.source for block in blocks})
+    detected_profile = detect_processing_profile('\n'.join(block.text for block in blocks))
+    selected_profile = detected_profile if processing_profile == 'auto' else processing_profile
+    trusted_layout = selected_layout_mode in {'structure-aware', 'minimal'} and bool({b.source for b in blocks} & TRUSTED_BLOCK_SOURCES)
+
+    paragraphs: list[str] = []
+    structural_breaks = 0
+    artificial_breaks = 0
+    skipped_noise = 0
+    buffer = ''
+
+    def flush_buffer() -> None:
+        nonlocal buffer
+        if buffer.strip():
+            paragraphs.append(buffer.strip())
+            buffer = ''
+
+    for index, block in enumerate(blocks):
+        value = _clean_block_text(block.text, strip_datetime_tags=strip_datetime_tags)
+        if not value:
+            skipped_noise += 1
+            continue
+        kind = block.type
+        if kind in {'footer', 'page_number', 'toc'}:
+            skipped_noise += 1
+            continue
+        if kind in {'heading', 'list_item', 'caption', 'quote'}:
+            flush_buffer()
+            paragraphs.append(value)
+            structural_breaks += 1
+            continue
+        if trusted_layout or selected_layout_mode == 'minimal':
+            flush_buffer()
+            # EPUB/DOCX paragraphs are already semantic blocks.  Preserve them
+            # even when the paragraph lacks final punctuation.
+            paragraphs.append(_join_extracted_lines(value.splitlines()) if '\n' in value else value)
+            structural_breaks += 1
+            continue
+        # Plain text and PDF blocks often contain physical line wraps.  Reuse
+        # the structure-aware line reflow with source-level headings still visible.
+        for sub_block in _line_blocks(value.splitlines()):
+            previous_text = paragraphs[-1] if paragraphs else ''
+            structural = selected_layout_mode == 'structure-aware' and is_structural_heading(sub_block, previous_text=previous_text, index=index)
+            list_item = is_list_item(sub_block)
+            if structural or list_item:
+                flush_buffer()
+                paragraphs.append(sub_block)
+                structural_breaks += 1
+                continue
+            if selected_layout_mode == 'standard':
+                buffer += sub_block
+            else:
+                if buffer:
+                    buffer += (' ' if (n_cjk(buffer + sub_block) == 0) else '') + sub_block
+                    artificial_breaks += 1
+                else:
+                    buffer = sub_block
+            if buffer and _ends_sentence(buffer):
+                flush_buffer()
+    flush_buffer()
+
+    chinese_mode = selected_profile in {'chinese', 'mixed'}
+    kept: list[str] = []
+    for paragraph in paragraphs:
+        paragraph = normalize_cjk(paragraph)
+        compact = re.sub(r'\s', '', paragraph)
+        if len(compact) < 4 and not is_structural_heading(paragraph):
+            continue
+        if chinese_mode and selected_layout_mode == 'standard' and n_cjk(paragraph) / max(len(compact), 1) < cjk_ratio:
+            continue
+        if kept and kept[-1] == paragraph:
+            continue
+        kept.append(paragraph)
+
+    body = '\n\n'.join(kept)
+    article_boundaries = detect_article_boundaries(kept)
+    stats = {
+        'engine': 'document-block-v1',
+        'language_mode': selected_profile,
+        'detected_profile': detected_profile,
+        'requested_profile': processing_profile,
+        'cjk_chars': n_cjk(body),
+        'paragraphs': len(kept),
+        'residual_exact_duplicates': sum(c - 1 for c in Counter(kept).values() if c > 1),
+        'running_headers_removed': [],
+        'residual_intra_cjk_spaces': len(re.findall(r'[\u3400-\u9fff] +[\u3400-\u9fff]', body)),
+        'metadata_datetime_cleanup': bool(strip_datetime_tags),
+        'preserve_paragraph_breaks': selected_layout_mode == 'minimal',
+        'layout_mode': selected_layout_mode,
+        'source_blocks': len(blocks),
+        'source_block_types': dict(Counter(block.type for block in blocks)),
+        'source_block_sources': source_types,
+        'structural_breaks_preserved': structural_breaks,
+        'artificial_breaks_reflowed': artificial_breaks,
+        'noise_blocks_removed': skipped_noise,
+        'article_boundaries_detected': len(article_boundaries),
+    }
+    return body, stats
 
 def clean_text(
     raw: str,
@@ -291,6 +497,8 @@ def clean_text(
             if not value:
                 lines.append('')
                 continue
+            if PAGE_FOOTER_RE.search(value):
+                continue
             if not first_seen:
                 first_seen = True
                 if value in running or re.fullmatch(r'\d{1,5}', value):
@@ -316,7 +524,7 @@ def clean_text(
     for paragraph in paragraphs:
         paragraph = normalize_cjk(paragraph)
         compact = re.sub(r'\s', '', paragraph)
-        if len(compact) < 4:
+        if len(compact) < 4 and not is_structural_heading(paragraph):
             continue
         if chinese_mode and selected_layout_mode == 'standard' and n_cjk(paragraph) / max(len(compact), 1) < cjk_ratio:
             continue

@@ -47,6 +47,25 @@ class TextProcessingTests(unittest.TestCase):
         self.assertIn('章标题正文第一句。', cleaned)
         self.assertEqual(stats['layout_mode'], 'standard')
 
+
+    def test_structure_aware_keeps_lists_after_colon_separate(self):
+        raw = '我希望通过本文，阐述以下问题:\n\n1、中国经济如何变化？\n\n2、普通人如何应对？'
+        cleaned, stats = clean_text(raw, layout_mode='structure-aware')
+        self.assertIn('我希望通过本文，阐述以下问题:\n\n1、中国经济如何变化？', cleaned)
+        self.assertIn('1、中国经济如何变化？\n\n2、普通人如何应对？', cleaned)
+
+    def test_structure_aware_removes_pdf_footer_fragments_before_reflow(self):
+        raw = '从2022年初开始，出现螺旋下降的\n\nhttps://example.com/x 2024/7/7 10 29\n码 1/54\n页\n\n通货紧缩。'
+        cleaned, stats = clean_text(raw, layout_mode='structure-aware')
+        self.assertIn('出现螺旋下降的通货紧缩。', cleaned)
+        self.assertNotIn('https://example.com', cleaned)
+        self.assertNotIn('码 1/54', cleaned)
+
+    def test_structure_aware_preserves_english_epub_headings(self):
+        raw = 'Chapter One\n\nThe New Human Agenda\n\nAt the dawn of the third millennium, humanity wakes up.'
+        cleaned, stats = clean_text(raw, layout_mode='structure-aware')
+        self.assertIn('Chapter One\n\nThe New Human Agenda\n\nAt the dawn', cleaned)
+
     def test_dictionary_preview(self):
         rendered, preview = apply_dictionary('重庆重庆', [{'find': '重庆', 'replace': '重 庆', 'enabled': True}])
         self.assertEqual(rendered, '重 庆重 庆')

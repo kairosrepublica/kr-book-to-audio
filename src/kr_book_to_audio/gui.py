@@ -376,7 +376,7 @@ def visible_window_height_px(root: tk.Misc) -> int:
 class App:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title('KR Book To Audio 3.2')
+        self.root.title('KR Book To Audio 3.3')
         apply_window_icon(self.root)
         cfg = load_config()
         geometry, self.layout_mode = compute_window_geometry(self.root.winfo_screenwidth(), self.root.winfo_screenheight(), cfg.get('window_geometry_v231'))
@@ -2253,7 +2253,7 @@ class App:
         minsize = getattr(root, 'minsize', None)
         title = getattr(root, 'title', None)
         if callable(title):
-            title('KR Book To Audio 3.2')
+            title('KR Book To Audio 3.3')
         if callable(minsize):
             minsize(1480, 1260)
         target = '1580x1260'

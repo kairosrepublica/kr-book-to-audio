@@ -1,9 +1,10 @@
 {
-  "release_name": "KR Book To Audio — Porto Release 3.2",
-  "release_token": "porto-release-3.2.0-source",
+  "release_name": "KR Book To Audio — Porto Release 3.3",
+  "release_token": "porto-release-3.3.0-source",
   "source_root": ".",
-  "generated_at": "2026-06-20T20:10:30.476385+00:00",
-  "file_count": 179,
+  "generated_at": "2026-06-21T15:21:40.555796+00:00",
+  "file_count": 182,
+  "manifest_hash_note": "SOURCE_MANIFEST.json is excluded from the files list to avoid self-referential hash instability.",
   "files": [
     {
       "path": ".github/workflows/ci.yml",
@@ -22,8 +23,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 7533,
-      "sha256": "a37787916355a09a1fbc114e8f621df3ace0fa499717694724f9fedab1084c9a"
+      "bytes": 8223,
+      "sha256": "550890c6bb9cba12ca6f40dc38ade57e0edff50964b41ebb5959b78ac925d202"
     },
     {
       "path": "docs/ARCHITECTURE.md",
@@ -147,8 +148,13 @@
     },
     {
       "path": "docs/RELEASE_NOTES_PORTO_RELEASE_3_2.md",
-      "bytes": 3686,
-      "sha256": "762e49cb0dfbc0a022001f585eec7eaa550611ac57c5fb84a5e70f885bf8534b"
+      "bytes": 3840,
+      "sha256": "83ac28f6921f8bdbc7c063a24200ae15fda3cf2e47734080ed17c41cd0c56655"
+    },
+    {
+      "path": "docs/RELEASE_NOTES_PORTO_RELEASE_3_3.md",
+      "bytes": 3168,
+      "sha256": "c9b16f0a756877afc5e98595c34a4a4c98862eb334689c21121c74044b5ab19b"
     },
     {
       "path": "docs/dev-history/ISTANBUL_RELEASE_3_0_DEVELOPMENT_CHRONOLOGY.md",
@@ -208,12 +214,12 @@
     {
       "path": "pyproject.toml",
       "bytes": 803,
-      "sha256": "10f85f047906968a30937469c1169da0cd02199e77e7b833d374cca2af6a4af6"
+      "sha256": "ac072ec12e0581eeb74108872ce622bf3a0bb11de5c76019087273761cd364c5"
     },
     {
       "path": "src/kr_book_to_audio/__init__.py",
       "bytes": 61,
-      "sha256": "a46afec87b779d971c10f729e2bb520b33cbdd89bc2b7d87b4ab7de044e3ae28"
+      "sha256": "fbe425d224d136073f50988a9fcea876c7b4408f00f05e1656ab641d2d037f61"
     },
     {
       "path": "src/kr_book_to_audio/assets/branding/ba_round_corner_small_square_fill-800.png",
@@ -251,6 +257,11 @@
       "sha256": "2d52ecced45a5757523d07b313bd9397c0ea2ef149c50e8a3e41b5cd177b0699"
     },
     {
+      "path": "src/kr_book_to_audio/document_blocks.py",
+      "bytes": 1828,
+      "sha256": "b0f929d19116f966e392752f9c31a16aace9eccec3d570b70fe001e92b7f4ccc"
+    },
+    {
       "path": "src/kr_book_to_audio/durable_io.py",
       "bytes": 6729,
       "sha256": "4e4964dc1025fda406eb01b45ccf859d41d4b32da107f8cd5425f0b431943b9a"
@@ -272,13 +283,13 @@
     },
     {
       "path": "src/kr_book_to_audio/extractors.py",
-      "bytes": 11896,
-      "sha256": "4d41f956b7be6d65fd9cdcfe7a4544b44a5c95ccc3baab0cbcdc82876d6e84ad"
+      "bytes": 22852,
+      "sha256": "68af2d400c85a25c25a78b1eabcdc9bdc55f4ac2fb81232d063505a25e5c2853"
     },
     {
       "path": "src/kr_book_to_audio/gui.py",
       "bytes": 158123,
-      "sha256": "ad4daeb567aae3ec2b09d9df0457e9419fc46fed2e2c9841390f0331b19a783d"
+      "sha256": "76ed2e514ecbed7e062fc9ae0db16c1649cd53b5d22c4f2abbf2e1698e6b2b2c"
     },
     {
       "path": "src/kr_book_to_audio/gui_runtime_probe.py",
@@ -337,8 +348,8 @@
     },
     {
       "path": "src/kr_book_to_audio/pipeline.py",
-      "bytes": 10530,
-      "sha256": "7b3e27cd3d06cfea7635939d8da3c6cd1b19bb6681b7d304947ccd54cfd2bf0f"
+      "bytes": 10919,
+      "sha256": "d4df9470bbeb640889a3f233a9c0e48143c4d567a4640d8d82c975328a75dcc9"
     },
     {
       "path": "src/kr_book_to_audio/portable.py",
@@ -372,8 +383,8 @@
     },
     {
       "path": "src/kr_book_to_audio/text_processing.py",
-      "bytes": 22502,
-      "sha256": "757b64df23952a855eee01e2e15d5251ccd9ddc8fb195653989f4cdba9cab6a3"
+      "bytes": 31097,
+      "sha256": "03f297c008e183e2f41436d5ea9be195a090a98802632df2da0f7a5de41f7306"
     },
     {
       "path": "src/kr_book_to_audio/ui_v295.py",
@@ -487,8 +498,8 @@
     },
     {
       "path": "tests/test_extractors.py",
-      "bytes": 1161,
-      "sha256": "8d27ed8629f7f7a4e06d75aee3d75ee5c126fb048a3f8deee84c88b383ede48e"
+      "bytes": 2394,
+      "sha256": "63c6f4dcf1973c43544486da2190dda8ab08e926cd273c0c6f115579c03ddd6e"
     },
     {
       "path": "tests/test_fixed_shell_wheel_scroll.py",
@@ -677,8 +688,8 @@
     },
     {
       "path": "tests/test_text_processing.py",
-      "bytes": 6590,
-      "sha256": "1994d00de358b86607a4345b6eaa210060ceac83b09e335401ead148336a776a"
+      "bytes": 7868,
+      "sha256": "1ea1f3c28cb652a3e79abc63b8953c2df32582b8de8d5a5acd10003fde22d682"
     },
     {
       "path": "tests/test_v230_contract.py",
@@ -863,7 +874,12 @@
     {
       "path": "tests/test_v320_porto_release_contract.py",
       "bytes": 1592,
-      "sha256": "6f261239c4f885da0f7b5b9f20fed08ea5618f6d0017cd32c2e1dfa8c418696d"
+      "sha256": "6b606f63044e8401062aa54c108972aeac26c40d0d197f566357e01d709b56aa"
+    },
+    {
+      "path": "tests/test_v330_text_engine.py",
+      "bytes": 2606,
+      "sha256": "f76edb000fff768aa30b66d8cddbaf2fd9b86c060a7b0e57682f1d2d5a200c39"
     },
     {
       "path": "tests/test_voices.py",
